@@ -162,6 +162,35 @@ def proses_cari_saham(message):
         
         bot.edit_message_text(f"❌ Terjadi kesalahan saat mencari {kode_input}. Coba lagi.", chat_id, pesan_loading.message_id, reply_markup=markup_error)
 
+@bot.message_handler(content_types=['photo'])
+def proses_hapus_bg(message):
+    chat_id = message.chat.id
+    
+    pesan_loading = bot.send_message(chat_id, "⏳ <i>Sedang memproses foto dan menghapus background...</i>", parse_mode="HTML")
+    
+    try:
+        # Ambil file gambar resolusi tertinggi
+        file_info = bot.get_file(message.photo[-1].file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        
+        # Request ke remove.bg
+        response = requests.post(
+            'https://api.remove.bg/v1.0/removebg',
+            files={'image_file': downloaded_file},
+            data={'size': 'auto'},
+            headers={'X-Api-Key': REMOVE_BG_API_KEY},
+        )
+        
+        if response.status_code == requests.codes.ok:
+            # Kirim hasil sebagai dokumen (agar tidak turun kualitasnya / transparan terjaga)
+            bot.send_document(chat_id, response.content, visible_file_name="hasil_nobg.png")
+            bot.delete_message(chat_id, pesan_loading.message_id)
+        else:
+            bot.edit_message_text(f"❌ Gagal memproses gambar. Pastikan API Key valid atau kuota remove.bg masih ada. Status: {response.status_code}", chat_id, pesan_loading.message_id)
+            
+    except Exception as e:
+        bot.edit_message_text(f"❌ Terjadi kesalahan sistem: {str(e)}", chat_id, pesan_loading.message_id)
+
 # SISTEM
 if __name__ == "__main__":
     print("[SYSTEM] Super App Bot sedang berjalan. Silakan buka Telegram Anda!")
