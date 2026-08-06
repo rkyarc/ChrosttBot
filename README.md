@@ -43,8 +43,8 @@ Sebelum menjalankan bot, pastikan kamu sudah memiliki:
 1. Clone atau unduh project ini.
 
 ```bash
-git clone <link-repo-kamu>
-cd <nama-folder-project>
+git clone https://github.com/rkyarc/ChrosttBot
+cd ChrosttBot
 ```
 
 2. Buat virtual environment.
