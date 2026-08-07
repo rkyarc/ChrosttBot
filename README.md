@@ -13,7 +13,9 @@ Chrostt Bot adalah bot Telegram berbasis Python yang menggabungkan beberapa fitu
 
 ```text
 ChrosttBot/
+├── .env.example
 ├── config.py
+├── dev.py
 ├── main.py
 ├── pyproject.toml
 ├── README.md
@@ -49,6 +51,7 @@ ChrosttBot/
 - `bot/handlers/saham.py` menangani menu saham, cek IHSG, dan pencarian emiten manual.
 - `bot/handlers/background.py` memproses foto yang dikirim pengguna untuk hapus background.
 - `bot/handlers/tiktok.py` menangkap link TikTok, menampilkan detail media, lalu mengirim file sesuai pilihan tombol.
+- `dev.py` menjalankan mode auto-reload saat pengembangan dan menghentikan proses lama sebelum restart.
 
 ## Persyaratan
 
@@ -77,6 +80,16 @@ poetry install
 poetry run python main.py
 ```
 
+## Mode Development (Auto Reload)
+
+Kalau ingin bot restart otomatis saat file Python berubah:
+
+```bash
+poetry run python dev.py
+```
+
+Mode ini memakai `watchfiles` dan sudah mencoba mematikan proses bot lama secara otomatis agar tidak bentrok polling.
+
 ## Cara Pakai
 
 - Kirim `/start` atau `/menu` untuk membuka menu utama.
@@ -88,7 +101,17 @@ poetry run python main.py
 
 - `.env.example` hanya berisi `TELEGRAM_TOKEN`.
 - Fitur hapus background memakai API rembg gratis, jadi tidak perlu `REMOVE_BG_API_KEY`.
+- Dependency utama dikelola dari `pyproject.toml` dan dikunci di `poetry.lock`.
+- `requirements.txt` disediakan untuk instalasi berbasis pip dan sudah diselaraskan dengan dependency utama project.
 - Kode saham Indonesia biasanya ditulis tanpa `.JK` saat input, misalnya `BBCA`.
 - IHSG diambil melalui kode `^JKSE`.
 - TikTok link yang didukung biasanya berasal dari `tiktok.com`, `vt.tiktok.com`, atau `vm.tiktok.com`.
 - Bot akan mencoba lanjut polling otomatis jika instance Telegram sempat konflik atau terputus.
+
+## Troubleshooting 409 Conflict
+
+Jika muncul pesan `Conflict: terminated by other getUpdates request`:
+
+1. Pastikan hanya satu instance bot yang berjalan untuk satu token.
+2. Jangan jalankan `main.py` dan `dev.py` bersamaan.
+3. Jika baru pindah dari mode manual ke mode dev, hentikan proses lama dulu lalu jalankan ulang `poetry run python dev.py`.
