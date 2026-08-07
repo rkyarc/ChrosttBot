@@ -10,6 +10,7 @@ def markup_menu_utama():
     markup.add(
         InlineKeyboardButton("✂️ Hapus Background Foto", callback_data="menu_bg"),
         InlineKeyboardButton("📈 Cek Saham", callback_data="menu_saham"),
+				InlineKeyboardButton("📰 Berita IDX", callback_data="menu_berita"),
         InlineKeyboardButton("🎵 TikTok Downloader", callback_data="menu_tiktok"),
         InlineKeyboardButton("ℹ️ Info Bot", callback_data="menu_info"),
     )
@@ -89,4 +90,52 @@ def markup_download_tiktok(has_images=False, image_count=0, has_music=True):
         markup.add(InlineKeyboardButton("🎵 Kirim Musik", callback_data="tiktok_music"))
 
     markup.add(InlineKeyboardButton("🏠 Menu Utama", callback_data="menu_utama"))
+    return markup
+
+def markup_berita_idx(halaman_sekarang: int, total_halaman: int, force_refresh: bool = False):
+    """Keyboard untuk menu berita IDX dengan navigasi halaman."""
+    markup = InlineKeyboardMarkup(row_width=3)
+
+    # Baris 1: navigasi halaman
+    tombol_nav = []
+    if halaman_sekarang > 1:
+        tombol_nav.append(
+            InlineKeyboardButton(
+                "◀️ Sebelumnya",
+                callback_data=f"berita_idx_page_{halaman_sekarang - 1}",
+            )
+        )
+    
+    # Label halaman (di tengah, tidak clickable)
+    label_halaman = f"Hal {halaman_sekarang}/{total_halaman}"
+    tombol_nav.append(
+        InlineKeyboardButton(
+            label_halaman,
+            callback_data="noop",  # tombol pasif
+        )
+    )
+    
+    if halaman_sekarang < total_halaman:
+        tombol_nav.append(
+            InlineKeyboardButton(
+                "Berikutnya ▶️",
+                callback_data=f"berita_idx_page_{halaman_sekarang + 1}",
+            )
+        )
+    
+    markup.row(*tombol_nav)
+
+    # Baris 2: refresh + kembali
+    if force_refresh:
+        markup.add(
+            InlineKeyboardButton("🔄 Refresh Paksa (Fetch Ulang)", callback_data="berita_idx_refresh"),
+        )
+    else:
+        markup.add(
+            InlineKeyboardButton("🔄 Refresh", callback_data="berita_idx_refresh"),
+        )
+    
+    markup.add(
+        InlineKeyboardButton("🏠 Menu Utama", callback_data="menu_utama"),
+    )
     return markup

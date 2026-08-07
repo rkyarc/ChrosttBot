@@ -10,6 +10,8 @@ TEKS_SAMBUTAN = (
     "   Remove background foto secara otomatis\n\n"
     "📈 <b>Cek Saham</b>\n"
     "   Pantau harga saham & IHSG real-time\n\n"
+    "📰 <b>Berita IDX</b>\n"
+    "   Berita terbaru dari Bursa Efek Indonesia\n\n"
     "🎵 <b>TikTok Downloader</b>\n"
     "   Download video TikTok tanpa watermark\n\n"
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
