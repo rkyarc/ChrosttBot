@@ -2,18 +2,28 @@ import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from watchfiles import watch, PythonFilter
 
 
 process = None
+ROOT = Path(__file__).resolve().parent
 
 
 def start_bot():
     """Jalankan main.py dengan python venv (sys.executable)."""
     global process
     print("[DEV] Starting bot...")
-    process = subprocess.Popen([sys.executable, "main.py"])
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+
+    process = subprocess.Popen(
+        [sys.executable, str(ROOT / "main.py")],
+        cwd=str(ROOT),
+        creationflags=creationflags,
+    )
 
 
 def stop_bot():
@@ -24,7 +34,19 @@ def stop_bot():
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            process.kill()
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+            else:
+                process.kill()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
     process = None
 
 
@@ -42,7 +64,7 @@ if __name__ == "__main__":
             )
             print(f"\n[DEV] Perubahan terdeteksi: {nama_file} -> restarting...")
             stop_bot()
-            time.sleep(1)  # jeda biar sesi Telegram sempat terlepas
+            time.sleep(2)  # jeda biar sesi Telegram sempat terlepas
             start_bot()
     except KeyboardInterrupt:
         stop_bot()
