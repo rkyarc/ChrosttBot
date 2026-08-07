@@ -3,7 +3,8 @@ name = "chrosttbot"
 version = "0.1.0"
 description = ""
 authors = [
-    {name = "RusdiEneri",email = "nuruddinrusydiilham@gmail.com"}
+    {name = "RusdiEneri",email = "nuruddinrusydiilham@gmail.com"},
+    {name = "rkyarc",email = "rkyarc@gmail.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.14"
