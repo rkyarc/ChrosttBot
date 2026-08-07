@@ -11,6 +11,7 @@ def markup_menu_utama():
         InlineKeyboardButton("✂️ Hapus Background Foto", callback_data="menu_bg"),
         InlineKeyboardButton("📈 Cek Saham", callback_data="menu_saham"),
 				InlineKeyboardButton("📰 Berita IDX", callback_data="menu_berita"),
+        InlineKeyboardButton("📷 Instagram Downloader", callback_data="menu_instagram"),
         InlineKeyboardButton("🎵 TikTok Downloader", callback_data="menu_tiktok"),
         InlineKeyboardButton("ℹ️ Info Bot", callback_data="menu_info"),
     )

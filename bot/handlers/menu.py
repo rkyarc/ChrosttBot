@@ -12,6 +12,8 @@ TEKS_SAMBUTAN = (
     "   Pantau harga saham & IHSG real-time\n\n"
     "📰 <b>Berita IDX</b>\n"
     "   Berita terbaru dari Bursa Efek Indonesia\n\n"
+    "📷 <b>Instagram Downloader</b>\n"
+    "   Download foto, carousel, dan video Instagram\n\n"
     "🎵 <b>TikTok Downloader</b>\n"
     "   Download video TikTok tanpa watermark\n\n"
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -27,6 +29,7 @@ TEKS_INFO = (
     "   • pyTelegramBotAPI\n"
     "   • yfinance\n"
 		"   • rembg API\n"
+        "   • saveinta.com\n"
     "   • tikwm API\n\n"
     "🎯 <b>Tujuan:</b>\n"
     "   Membantu tugas harian Anda dengan alur yang sederhana dan efisien.\n\n"
@@ -78,6 +81,24 @@ def mode_hapus_bg(call):
         call.message.chat.id,
         "📸 <b>Mode Hapus Background Aktif!</b>\nSilakan kirimkan satu foto (kirim sebagai foto biasa, bukan file dokumen).",
         parse_mode="HTML",
+    )
+
+
+@tg_bot.callback_query_handler(func=lambda call: call.data == "menu_instagram")
+def menu_instagram(call):
+    tg_bot.answer_callback_query(call.id)
+    tg_bot.edit_message_text(
+        "📷 <b>Instagram Downloader</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Kirim link Instagram dari postingan, reel, atau carousel untuk diproses otomatis.\n\n"
+        "• Foto/carousel akan dikirim langsung ke chat\n"
+        "• Video akan diunduh lalu dikirim sebagai media Telegram\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "💡 <i>Cukup paste link Instagram di chat ini, bot akan otomatis proses.</i>",
+        call.message.chat.id,
+        call.message.message_id,
+        parse_mode="HTML",
+        reply_markup=markup_kembali_menu_utama(),
     )
 
 
