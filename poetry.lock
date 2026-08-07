@@ -509,6 +509,33 @@ extra = ["lxml_html_clean", "markdownify (>=1.1.0)", "readability-lxml (>=0.8.1)
 test = ["charset_normalizer (>=3.3.2,<4.0)", "cryptography (>=46.0.4,<47.0)", "httpx (==0.23.1)", "litestar (>=2.19.0,<3.0)", "proxy.py (>=2.4.3,<3.0)", "pytest (>=8.1.1,<9.0)", "pytest-asyncio (>=0.23.6,<1.0)", "pytest-trio (>=0.8.0,<1.0)", "python-multipart (>=0.0.9,<1.0)", "trio (>=0.25.0,<1.0)", "trustme (>=1.1.0,<2.0)", "typing_extensions", "uvicorn (>=0.29.0,<1.0)", "websockets (>=14.0)"]
 
 [[package]]
+name = "feedparser"
+version = "6.0.14"
+description = "Universal feed parser, handles RSS 0.9x, RSS 1.0, RSS 2.0, CDF, Atom 0.3, and Atom 1.0 feeds"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "feedparser-6.0.14-py3-none-any.whl", hash = "sha256:e35e3f760151b0c3b22cac9684155cae186a233e16c49bcbc6c49e91e3131137"},
+    {file = "feedparser-6.0.14.tar.gz", hash = "sha256:088679b0c4b543ee211a820dd544698c76a402122eae7473c04a43425f283d06"},
+]
+
+[package.dependencies]
+feedparser-sgmllib = ">=2,<3"
+
+[[package]]
+name = "feedparser-sgmllib"
+version = "2.1.0"
+description = "sgmllib from Python 2.7. For feedparser use only."
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "feedparser_sgmllib-2.1.0-py3-none-any.whl", hash = "sha256:2cab2d43b95a954f920f18aebce7a4dbbb3f539780b127e2aa114f579821e01d"},
+    {file = "feedparser_sgmllib-2.1.0.tar.gz", hash = "sha256:61facf2918c4389b5b00714f76c5e03431ffcd94cd1f51d657edd6cd7c396579"},
+]
+
+[[package]]
 name = "frozenlist"
 version = "1.8.0"
 description = "A list-like structure which implements collections.abc.MutableSequence"
@@ -1739,4 +1766,4 @@ repair = ["scipy (>=1.6.3)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.14"
-content-hash = "24a3196bea908588973e34603708209826c31a25e20b7dbbdbb0e64d60b5a2d6"
+content-hash = "ef7eeb3546375000539ae6dd6bde329204ff749acf500b188c9d96d832dc1b27"
