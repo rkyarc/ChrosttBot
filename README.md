@@ -58,7 +58,7 @@ ChrosttBot/
 
 ## Setup
 
-1. Buat file `.env` di root project.
+1. Salin `.env.example` menjadi `.env` di root project.
 2. Isi minimal:
 
 ```env
@@ -86,6 +86,8 @@ poetry run python main.py
 
 ## Catatan
 
+- `.env.example` hanya berisi `TELEGRAM_TOKEN`.
+- Fitur hapus background memakai API rembg gratis, jadi tidak perlu `REMOVE_BG_API_KEY`.
 - Kode saham Indonesia biasanya ditulis tanpa `.JK` saat input, misalnya `BBCA`.
 - IHSG diambil melalui kode `^JKSE`.
 - TikTok link yang didukung biasanya berasal dari `tiktok.com`, `vt.tiktok.com`, atau `vm.tiktok.com`.
