@@ -1,11 +1,12 @@
 # Chrostt Bot
 
-Chrostt Bot adalah bot Telegram berbasis Python yang menggabungkan beberapa fitur praktis dalam satu menu: hapus background foto, cek saham Indonesia lewat Yahoo Finance, dan download video TikTok lewat tikwm.
+Chrostt Bot adalah bot Telegram berbasis Python yang menggabungkan beberapa fitur praktis dalam satu menu: hapus background foto, cek saham Indonesia lewat Yahoo Finance, download Instagram via SaveInta, dan download video TikTok lewat tikwm.
 
 ## Fitur
 
 - Hapus background foto secara otomatis dari gambar yang dikirim ke chat.
 - Cek harga saham BEI dan IHSG secara real-time.
+- Download foto, carousel, dan video Instagram.
 - Download video TikTok, video dengan watermark, foto/slideshow, dan audio jika tersedia.
 - Navigasi menu dibuat dengan inline keyboard agar alurnya cepat dan sederhana.
 
@@ -27,12 +28,14 @@ ChrosttBot/
 	├── handlers/
 	│   ├── __init__.py
 	│   ├── background.py
+	│   ├── instagram.py
 	│   ├── menu.py
 	│   ├── saham.py
 	│   └── tiktok.py
 	└── services/
 		├── __init__.py
 		├── removebg.py
+		├── saveinta.py
 		├── saham.py
 		└── tiktok.py
 ```
@@ -42,14 +45,16 @@ ChrosttBot/
 - `config.py` memuat environment dari `.env` dan akan menghentikan startup jika `TELEGRAM_TOKEN` belum diisi.
 - `main.py` mengimpor semua handler lalu menjalankan `tg_bot.infinity_polling()` dengan retry otomatis jika polling terputus.
 - `bot/__init__.py` membuat instance bot Telegram.
-- `bot/keyboards.py` menyimpan semua inline keyboard untuk menu utama, saham, background, dan TikTok.
+- `bot/keyboards.py` menyimpan semua inline keyboard untuk menu utama, saham, background, Instagram, dan TikTok.
 - `bot/utils.py` berisi helper umum, termasuk format angka rupiah.
 - `bot/services/saham.py` menangani pengambilan data saham dan validasi kode emiten.
 - `bot/services/removebg.py` mengirim gambar ke API rembg untuk menghapus background.
+- `bot/services/saveinta.py` menangani scrape dan parsing media Instagram dari SaveInta.
 - `bot/services/tiktok.py` mengekstrak data TikTok dari tikwm dan mengunduh media yang dipilih.
 - `bot/handlers/menu.py` menangani menu utama, info bot, dan akses cepat ke fitur lain.
 - `bot/handlers/saham.py` menangani menu saham, cek IHSG, dan pencarian emiten manual.
 - `bot/handlers/background.py` memproses foto yang dikirim pengguna untuk hapus background.
+- `bot/handlers/instagram.py` menangkap link Instagram dan mengirim media hasil ekstraksi langsung ke chat.
 - `bot/handlers/tiktok.py` menangkap link TikTok, menampilkan detail media, lalu mengirim file sesuai pilihan tombol.
 - `dev.py` menjalankan mode auto-reload saat pengembangan dan menghentikan proses lama sebelum restart.
 
@@ -95,6 +100,7 @@ Mode ini memakai `watchfiles` dan sudah mencoba mematikan proses bot lama secara
 - Kirim `/start` atau `/menu` untuk membuka menu utama.
 - Pilih menu saham untuk cek IHSG atau cari kode emiten seperti `BBCA` dan `ASII`.
 - Kirim foto biasa ke chat untuk proses hapus background.
+- Kirim link Instagram untuk memproses postingan, reel, carousel, atau story publik.
 - Kirim link TikTok untuk memunculkan pilihan download media.
 
 ## Catatan
@@ -106,6 +112,8 @@ Mode ini memakai `watchfiles` dan sudah mencoba mematikan proses bot lama secara
 - Kode saham Indonesia biasanya ditulis tanpa `.JK` saat input, misalnya `BBCA`.
 - IHSG diambil melalui kode `^JKSE`.
 - TikTok link yang didukung biasanya berasal dari `tiktok.com`, `vt.tiktok.com`, atau `vm.tiktok.com`.
+- Instagram link yang didukung biasanya berasal dari `instagram.com` atau `instagr.am`.
+- Story Instagram yang berisi campuran foto dan video akan diurutkan sesuai kartu sumber, sementara kartu audio-only diabaikan.
 - Bot akan mencoba lanjut polling otomatis jika instance Telegram sempat konflik atau terputus.
 
 ## Troubleshooting 409 Conflict
