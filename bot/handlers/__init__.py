@@ -1,1 +1,1 @@
-from . import background, menu, saham  # noqa: F401
+from . import background, menu, saham, tiktok  # noqa: F401
