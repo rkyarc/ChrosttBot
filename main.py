@@ -1,197 +1,54 @@
-import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-import requests
-import os
-from dotenv import load_dotenv
-import yfinance as yf
+import logging
+import time
 
-load_dotenv()
+from bot import tg_bot
+import bot.handlers  # noqa: F401
 
-# ================= KONFIGURASI UTAMA =================
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-REMOVE_BG_API_KEY = os.getenv('REMOVE_BG_API_KEY')
 
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
-# =====================================================
+class SembunyikanConflict(logging.Filter):
+    """Filter biar log spam 409 Conflict tidak memenuhi terminal,
+    tapi error lain (misal handler crash) tetap kelihatan."""
 
-@bot.message_handler(commands=['start', 'menu'])
-def tampilkan_menu(message):
-    markup = InlineKeyboardMarkup()
-    
-    btn1 = InlineKeyboardButton("✂️ Hapus Background Foto", callback_data="menu_bg")
-    btn2 = InlineKeyboardButton("📈 Cek Saham", callback_data="menu_saham")
-    btn3 = InlineKeyboardButton("ℹ️ Info Bot", callback_data="menu_info")
-    
-    markup.add(btn1)
-    markup.add(btn2)
-    markup.add(btn3)
-    
-    teks_sambutan = (
-        "🤖 <b>Selamat datang di Chrostt Bot!</b>\n\n"
-        "Silakan pilih menu layanan yang Anda butuhkan hari ini:"
-    )
-    
-    bot.send_message(message.chat.id, teks_sambutan, parse_mode="HTML", reply_markup=markup)
+    def filter(self, record):
+        pesan = record.getMessage()
+        return "409" not in pesan and "Conflict" not in pesan
 
-@bot.callback_query_handler(func=lambda call: True)
-def tanggapi_tombol(call):
-    chat_id = call.message.chat.id
-    
-    if call.data == "menu_utama":
-        markup = InlineKeyboardMarkup()
-        btn1 = InlineKeyboardButton("✂️ Hapus Background Foto", callback_data="menu_bg")
-        btn2 = InlineKeyboardButton("📈 Cek Saham", callback_data="menu_saham")
-        btn3 = InlineKeyboardButton("ℹ️ Info Bot", callback_data="menu_info")
-        markup.add(btn1)
-        markup.add(btn2)
-        markup.add(btn3)
-        
-        teks_sambutan = (
-            "🤖 <b>Selamat datang di Chrostt Bot!</b>\n\n"
-            "Silakan pilih menu layanan yang Anda butuhkan hari ini:"
-        )
-        bot.edit_message_text(teks_sambutan, chat_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
 
-    elif call.data == "menu_bg":
-        bot.send_message(chat_id, "📸 <b>Mode Hapus Background Aktif!</b>\nSilakan kirimkan satu foto (kirim sebagai foto biasa, bukan file dokumen).", parse_mode="HTML")
-        
-    elif call.data == "menu_saham":
-        markup = InlineKeyboardMarkup()
-        
-        btn_ihsg = InlineKeyboardButton("📊 IHSG", callback_data="cek_^JKSE")
-        btn_cari = InlineKeyboardButton("🔍 Cari Emiten Manual", callback_data="cari_saham")
-        btn_kembali = InlineKeyboardButton("🔙 Kembali ke Menu Utama", callback_data="menu_utama")
-        
-        markup.add(btn_ihsg)
-        markup.add(btn_cari)
-        markup.add(btn_kembali)
-        
-        bot.edit_message_text(
-            "📈 <b>Pusat Data Market</b>\n\nSilakan pilih indeks atau cari emiten:", 
-            chat_id, 
-            call.message.message_id, 
-            parse_mode="HTML", 
-            reply_markup=markup
-        )
-    
-    elif call.data == "menu_info":
-        bot.send_message(chat_id, "Bot ini dibangun menggunakan Python dan pyTelegramBotAPI. Dirancang khusus untuk efisiensi keseharian.")
+# Error handler tetap kelihatan, tapi spam 409 disaring
+logging.getLogger("telebot").setLevel(logging.ERROR)
+logging.getLogger("telebot").addFilter(SembunyikanConflict())
 
-    elif call.data.startswith("cek_"):
-        kode_emiten = call.data.split("_")[1] 
-        pesan_loading = bot.send_message(chat_id, f"🔍 <i>Menarik data {kode_emiten} dari bursa...</i>", parse_mode="HTML")
-        
-        try:
-            target = yf.Ticker(kode_emiten)
-            data_market = target.history(period="1d")
-            harga_terakhir = data_market['Close'].iloc[-1]
-            
-            if kode_emiten == "^JKSE":
-                harga_formatted = f"{harga_terakhir:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                nama_tampilan = "IHSG"
-            else:
-                harga_formatted = f"{int(harga_terakhir):,}".replace(",", "X").replace(".", ",").replace("X", ".")
-                nama_tampilan = kode_emiten.replace(".JK", "")
-            
-            teks_balasan = (
-                f"📊 <b>Update: {nama_tampilan}</b>\n"
-                f"Harga Terakhir: <b>Rp {harga_formatted}</b>\n\n"
-                "<i>*Data ditarik secara real-time via yfinance</i>"
-            )
-            
-            bot.edit_message_text(teks_balasan, chat_id, pesan_loading.message_id, parse_mode="HTML")
-            
-        except Exception as e:
-            bot.edit_message_text(f"❌ Gagal menarik data {kode_emiten}. Pastikan kode benar.", chat_id, pesan_loading.message_id)
 
-    elif call.data == "cari_saham":
-        pesan_instruksi = bot.send_message(
-            chat_id, 
-            "🔍 <b>Mode Pencarian Saham</b>\n\n"
-            "Silakan ketik 4 huruf kode saham yang ingin Anda cari (contoh: <code>ASII</code>, <code>GOTO</code>, atau <code>BBCA</code>):", 
-            parse_mode="HTML"
-        )
-        bot.register_next_step_handler(pesan_instruksi, proses_cari_saham)
-
-def proses_cari_saham(message):
-    chat_id = message.chat.id
-    
-    kode_input = message.text.upper().strip() 
-    kode_emiten = f"{kode_input}.JK"
-    
-    pesan_loading = bot.send_message(chat_id, f"⏳ <i>Mencari data {kode_input} di server bursa...</i>", parse_mode="HTML")
-    
+def run_bot():
     try:
-        target = yf.Ticker(kode_emiten)
-        data_market = target.history(period="1d")
-        
-        if data_market.empty:
-            markup_error = InlineKeyboardMarkup()
-            btn_coba_lagi = InlineKeyboardButton("🔄 Coba Cari Lagi", callback_data="cari_saham")
-            btn_kembali = InlineKeyboardButton("🔙 Kembali ke Menu Saham", callback_data="menu_saham")
-            markup_error.add(btn_coba_lagi)
-            markup_error.add(btn_kembali)
-            
-            bot.edit_message_text(
-                f"❌ Saham <b>{kode_input}</b> tidak ditemukan atau tidak terdaftar di BEI.\n\nSilakan periksa kembali kode emitennya.", 
-                chat_id, pesan_loading.message_id, parse_mode="HTML", reply_markup=markup_error
-            )
-            return 
-            
-        harga_terakhir = int(data_market['Close'].iloc[-1])
-        harga_formatted = f"{harga_terakhir:,}".replace(",", "X").replace(".", ",").replace("X", ".")
-        
-        markup_sukses = InlineKeyboardMarkup()
-        btn_cari_lain = InlineKeyboardButton("🔍 Cari Saham Lain", callback_data="cari_saham")
-        btn_kembali = InlineKeyboardButton("🔙 Kembali ke Menu Saham", callback_data="menu_saham")
-        markup_sukses.add(btn_cari_lain)
-        markup_sukses.add(btn_kembali)
-        
-        teks_balasan = (
-            f"📊 <b>Hasil Pencarian: {kode_input}</b>\n"
-            f"Harga Terakhir: <b>Rp {harga_formatted}</b>\n\n"
-            "<i>*Data ditarik secara real-time via yfinance</i>"
-        )
-        
-        bot.edit_message_text(teks_balasan, chat_id, pesan_loading.message_id, parse_mode="HTML", reply_markup=markup_sukses)
-        
-    except Exception as e:
-        markup_error = InlineKeyboardMarkup()
-        btn_coba_lagi = InlineKeyboardButton("🔄 Coba Lagi", callback_data="cari_saham")
-        markup_error.add(btn_coba_lagi)
-        
-        bot.edit_message_text(f"❌ Terjadi kesalahan saat mencari {kode_input}. Coba lagi.", chat_id, pesan_loading.message_id, reply_markup=markup_error)
+        tg_bot.remove_webhook()
+    except Exception:
+        pass
 
-@bot.message_handler(content_types=['photo'])
-def proses_hapus_bg(message):
-    chat_id = message.chat.id
-    
-    pesan_loading = bot.send_message(chat_id, "⏳ <i>Sedang memproses foto dan menghapus background...</i>", parse_mode="HTML")
-    
-    try:
-        # Ambil file gambar resolusi tertinggi
-        file_info = bot.get_file(message.photo[-1].file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
-        
-        # Request ke remove.bg
-        response = requests.post(
-            'https://api.remove.bg/v1.0/removebg',
-            files={'image_file': downloaded_file},
-            data={'size': 'auto'},
-            headers={'X-Api-Key': REMOVE_BG_API_KEY},
-        )
-        
-        if response.status_code == requests.codes.ok:
-            # Kirim hasil sebagai dokumen (agar tidak turun kualitasnya / transparan terjaga)
-            bot.send_document(chat_id, response.content, visible_file_name="hasil_nobg.png")
-            bot.delete_message(chat_id, pesan_loading.message_id)
-        else:
-            bot.edit_message_text(f"❌ Gagal memproses gambar. Pastikan API Key valid atau kuota remove.bg masih ada. Status: {response.status_code}", chat_id, pesan_loading.message_id)
-            
-    except Exception as e:
-        bot.edit_message_text(f"❌ Terjadi kesalahan sistem: {str(e)}", chat_id, pesan_loading.message_id)
-
-# SISTEM
-if __name__ == "__main__":
     print("[SYSTEM] Super App Bot sedang berjalan. Silakan buka Telegram Anda!")
-    bot.infinity_polling()
+
+    # Jeda singkat biar sesi lama sempat terlepas dari server Telegram
+    time.sleep(2)
+
+    delay = 5
+    while True:
+        try:
+            tg_bot.infinity_polling(
+                timeout=40,
+                long_polling_timeout=40,
+                skip_pending=True,
+            )
+        except Exception as e:
+            if "409" in str(e) or "Conflict" in str(e):
+                print(f"\n⚠️  [SYSTEM] Conflict 409: coba lagi dalam {delay} detik...")
+            else:
+                print(f"\n❌ [SYSTEM] Error polling: {e}")
+                print(f"   Mencoba ulang dalam {delay} detik...")
+            time.sleep(delay)
+            delay = min(delay + 5, 30)  # backoff bertahap, maksimal 30 detik
+        else:
+            delay = 5  # reset kalau polling sempat jalan normal
+
+
+if __name__ == "__main__":
+    run_bot()

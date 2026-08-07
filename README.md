@@ -1,282 +1,94 @@
 # Chrostt Bot
 
-Chrostt Bot adalah bot Telegram berbasis Python yang menyediakan beberapa layanan sederhana, seperti pengecekan harga saham Indonesia melalui Yahoo Finance dan menu untuk fitur hapus background foto. Bot ini dibangun menggunakan library `pyTelegramBotAPI`.
+Chrostt Bot adalah bot Telegram berbasis Python yang menggabungkan beberapa fitur praktis dalam satu menu: hapus background foto, cek saham Indonesia lewat Yahoo Finance, dan download video TikTok lewat tikwm.
 
 ## Fitur
 
-- 🤖 Menu utama dengan tombol inline
-- 📈 Cek data saham Indonesia
-  - Cek IHSG
-  - Cari emiten berdasarkan kode saham BEI
-- 📊 Menampilkan harga terakhir saham
-- ✂️ Menu hapus background foto (dalam pengembangan / siap dikembangkan)
-- ℹ️ Informasi bot
+- Hapus background foto secara otomatis dari gambar yang dikirim ke chat.
+- Cek harga saham BEI dan IHSG secara real-time.
+- Download video TikTok, video dengan watermark, foto/slideshow, dan audio jika tersedia.
+- Navigasi menu dibuat dengan inline keyboard agar alurnya cepat dan sederhana.
 
-## Teknologi yang Digunakan
-
-- Python
-- pyTelegramBotAPI
-- yfinance
-- requests
-- python-dotenv
-
-## Struktur Proyek
+## Struktur Project
 
 ```text
-nama-folder/
-├── bot.py
-├── .env
+ChrosttBot/
+├── config.py
+├── main.py
+├── pyproject.toml
+├── README.md
 ├── requirements.txt
-└── README.md
+└── bot/
+	├── __init__.py
+	├── keyboards.py
+	├── utils.py
+	├── handlers/
+	│   ├── __init__.py
+	│   ├── background.py
+	│   ├── menu.py
+	│   ├── saham.py
+	│   └── tiktok.py
+	└── services/
+		├── __init__.py
+		├── removebg.py
+		├── saham.py
+		└── tiktok.py
 ```
+
+## Cara Kerja
+
+- `config.py` memuat environment dari `.env` dan akan menghentikan startup jika `TELEGRAM_TOKEN` belum diisi.
+- `main.py` mengimpor semua handler lalu menjalankan `tg_bot.infinity_polling()` dengan retry otomatis jika polling terputus.
+- `bot/__init__.py` membuat instance bot Telegram.
+- `bot/keyboards.py` menyimpan semua inline keyboard untuk menu utama, saham, background, dan TikTok.
+- `bot/utils.py` berisi helper umum, termasuk format angka rupiah.
+- `bot/services/saham.py` menangani pengambilan data saham dan validasi kode emiten.
+- `bot/services/removebg.py` mengirim gambar ke API rembg untuk menghapus background.
+- `bot/services/tiktok.py` mengekstrak data TikTok dari tikwm dan mengunduh media yang dipilih.
+- `bot/handlers/menu.py` menangani menu utama, info bot, dan akses cepat ke fitur lain.
+- `bot/handlers/saham.py` menangani menu saham, cek IHSG, dan pencarian emiten manual.
+- `bot/handlers/background.py` memproses foto yang dikirim pengguna untuk hapus background.
+- `bot/handlers/tiktok.py` menangkap link TikTok, menampilkan detail media, lalu mengirim file sesuai pilihan tombol.
 
 ## Persyaratan
 
-Sebelum menjalankan bot, pastikan kamu sudah memiliki:
+- Python `>=3.14`
+- Poetry
+- Token bot Telegram dari BotFather
 
-- Python 3.9 atau lebih baru
-- Token bot Telegram dari [@BotFather](https://t.me/BotFather)
-- API key Remove.bg jika ingin menggunakan fitur hapus background
+## Setup
 
-## Instalasi
-
-1. Clone atau unduh project ini.
-
-```bash
-git clone https://github.com/rkyarc/ChrosttBot
-cd ChrosttBot
-```
-
-2. Buat virtual environment.
-
-```bash
-python -m venv venv
-```
-
-3. Aktifkan virtual environment.
-
-Windows:
-
-```bash
-venv\Scripts\activate
-```
-
-Linux / macOS:
-
-```bash
-source venv/bin/activate
-```
-
-4. Install semua package yang dibutuhkan.
-
-Jika file dependency kamu bernama `requirements.txt`:
-
-```bash
-pip install -r requirements.txt
-```
-
-Jika file dependency kamu bernama `requirement.txt`:
-
-```bash
-pip install -r requirement.txt
-```
-
-Atau install manual:
-
-```bash
-pip install pyTelegramBotAPI requests python-dotenv yfinance
-```
-
-## Konfigurasi Environment
-
-Buat file `.env` di folder utama project, lalu isi dengan token dan API key milik kamu.
+1. Salin `.env.example` menjadi `.env` di root project.
+2. Isi minimal:
 
 ```env
-TELEGRAM_TOKEN=token_telegram_kamu
-REMOVE_BG_API_KEY=api_key_remove_bg_kamu
+TELEGRAM_TOKEN=isi_token_bot_kamu
 ```
 
-Contoh:
-
-```env
-TELEGRAM_TOKEN=123456789:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-REMOVE_BG_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxx
-```
-
-### Cara Mendapatkan Token Telegram Bot
-
-1. Buka Telegram.
-2. Cari [@BotFather](https://t.me/BotFather).
-3. Gunakan perintah `/newbot`.
-4. Ikuti proses pembuatan bot.
-5. Salin token yang diberikan oleh BotFather.
-6. Tempel token tersebut ke file `.env`.
-
-### Cara Mendapatkan Remove.bg API Key
-
-1. Kunjungi [https://www.remove.bg/api](https://www.remove.bg/api).
-2. Daftar atau login.
-3. Ambil API key dari dashboard.
-4. Tempel API key tersebut ke file `.env`.
-
-## Cara Menjalankan Bot
-
-Jalankan script bot menggunakan Python.
+3. Install dependency.
 
 ```bash
-python bot.py
+poetry install
 ```
 
-Jika muncul pesan seperti ini:
+4. Jalankan bot.
 
-```text
-[SYSTEM] Super App Bot sedang berjalan. Silakan buka Telegram Anda!
+```bash
+poetry run python main.py
 ```
 
-Berarti bot berhasil dijalankan.
+## Cara Pakai
 
-Setelah itu, buka bot Telegram kamu dan kirim perintah:
-
-```text
-/start
-```
-
-atau
-
-```text
-/menu
-```
-
-## Penggunaan
-
-### Cek IHSG
-
-1. Kirim `/start` atau `/menu`.
-2. Pilih menu **📈 Cek Saham**.
-3. Pilih tombol **📊 IHSG**.
-4. Bot akan menampilkan data IHSG terbaru.
-
-### Cari Saham
-
-1. Kirim `/start` atau `/menu`.
-2. Pilih menu **📈 Cek Saham**.
-3. Pilih tombol **🔍 Cari Emiten Manual**.
-4. Masukkan kode saham tanpa akhiran `.JK`.
-
-Contoh:
-
-```text
-BBCA
-```
-
-atau
-
-```text
-ASII
-```
-
-atau
-
-```text
-GOTO
-```
-
-Bot akan otomatis menambahkan `.JK` di belakang kode untuk mencari data saham di Bursa Efek Indonesia melalui Yahoo Finance.
-
-## Contoh Kode Saham
-
-| Saham | Input di Bot |
-|---|---|
-| Bank Central Asia | BBCA |
-| Astra International | ASII |
-| GoTo Gojek Tokopedia | GOTO |
-| Bank Rakyat Indonesia | BBRI |
-| Bank Mandiri | BMRI |
+- Kirim `/start` atau `/menu` untuk membuka menu utama.
+- Pilih menu saham untuk cek IHSG atau cari kode emiten seperti `BBCA` dan `ASII`.
+- Kirim foto biasa ke chat untuk proses hapus background.
+- Kirim link TikTok untuk memunculkan pilihan download media.
 
 ## Catatan
 
-- Kode saham Indonesia di Yahoo Finance biasanya memiliki akhiran `.JK`, contohnya `BBCA.JK`.
-- Bot ini otomatis menambahkan `.JK` saat pengguna mencari saham berdasarkan kode 4 huruf.
-- Data harga diambil dari `yfinance`, sehingga ketersediaan data dapat bergantung pada layanan Yahoo Finance.
-- Fitur hapus background memerlukan API key Remove.bg dan dapat dikembangkan lebih lanjut pada bagian handler foto.
-
-## Troubleshooting
-
-### 1. `ModuleNotFoundError: No module named 'telebot'`
-
-Artinya paket `pyTelegramBotAPI` belum ter-install. Jalankan:
-
-```bash
-pip install pyTelegramBotAPI
-```
-
-atau:
-
-```bash
-pip install -r requirements.txt
-```
-
----
-
-### 2. `ModuleNotFoundError: No module named 'dotenv'`
-
-Install paket `python-dotenv`:
-
-```bash
-pip install python-dotenv
-```
-
----
-
-### 3. Bot tidak merespons
-
-Beberapa hal yang bisa dicek:
-
-- Pastikan `TELEGRAM_TOKEN` di `.env` sudah benar.
-- Pastikan token tidak memiliki spasi berlebih.
-- Pastikan script bot sedang berjalan.
-- Pastikan tidak ada bot lain yang berjalan dengan token yang sama.
-
----
-
-### 4. `.env` tidak terbaca
-
-Pastikan file `.env` berada di folder yang sama dengan file bot.
-
-Contoh:
-
-```text
-folder-bot/
-├── bot.py
-└── .env
-```
-
----
-
-### 5. Gagal mengambil data saham
-
-Kemungkinan penyebabnya:
-
-- Kode saham salah.
-- Kode saham tidak terdaftar di BEI.
-- Yahoo Finance sedang gangguan atau rate limit.
-- Koneksi internet bermasalah.
-
-Coba ulangi dengan kode saham yang benar, misalnya:
-
-```text
-BBCA
-```
-
-## Lisensi
-
-Project ini dapat digunakan dan dikembangkan sesuai kebutuhan.
-
-## Kredit
-
-Bot ini dibuat menggunakan:
-
-- [pyTelegramBotAPI](https://github.com/eternnoir/pyTelegramBotAPI)
-- [yfinance](https://github.com/ranaroussi/yfinance)
-- [requests](https://requests.readthedocs.io/)
-- [python-dotenv](https://github.com/theskumar/python-dotenv)
+- `.env.example` hanya berisi `TELEGRAM_TOKEN`.
+- Fitur hapus background memakai API rembg gratis, jadi tidak perlu `REMOVE_BG_API_KEY`.
+- Kode saham Indonesia biasanya ditulis tanpa `.JK` saat input, misalnya `BBCA`.
+- IHSG diambil melalui kode `^JKSE`.
+- TikTok link yang didukung biasanya berasal dari `tiktok.com`, `vt.tiktok.com`, atau `vm.tiktok.com`.
+- Bot akan mencoba lanjut polling otomatis jika instance Telegram sempat konflik atau terputus.
