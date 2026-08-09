@@ -10,13 +10,25 @@ def markup_menu_utama():
     markup.add(
         InlineKeyboardButton("✂️ Hapus Background Foto", callback_data="menu_bg"),
         InlineKeyboardButton("📈 Cek Saham", callback_data="menu_saham"),
-				InlineKeyboardButton("📰 Berita IDX", callback_data="menu_berita"),
+		InlineKeyboardButton("📰 Berita IDX", callback_data="menu_berita"),
         InlineKeyboardButton("📷 Instagram Downloader", callback_data="menu_instagram"),
         InlineKeyboardButton("🎵 TikTok Downloader", callback_data="menu_tiktok"),
+        InlineKeyboardButton("📘 Facebook Downloader", callback_data="menu_facebook"),
         InlineKeyboardButton("ℹ️ Info Bot", callback_data="menu_info"),
     )
     return markup
 
+def markup_download_facebook(has_sd=False, has_hd=False):
+    """Keyboard hasil Facebook Downloader untuk memilih kualitas."""
+    markup = InlineKeyboardMarkup(row_width=1)
+    
+    if has_hd:
+        markup.add(InlineKeyboardButton("🎥 Download Video HD (Kualitas Tinggi)", callback_data="fb_hd"))
+    if has_sd:
+        markup.add(InlineKeyboardButton("📱 Download Video SD (Kualitas Normal)", callback_data="fb_sd"))
+        
+    markup.add(InlineKeyboardButton("🏠 Menu Utama", callback_data="menu_utama"))
+    return markup
 
 def markup_kembali_menu_utama():
     """Tombol tunggal untuk kembali ke menu utama."""

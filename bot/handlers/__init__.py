@@ -1,1 +1,1 @@
-from . import background, idx_news, instagram, menu, saham, tiktok  # noqa: F401
+from . import background, idx_news, instagram, menu, saham, tiktok, facebook  # noqa: F401

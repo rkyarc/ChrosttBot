@@ -73,10 +73,18 @@ ChrosttBot/
 TELEGRAM_TOKEN=isi_token_bot_kamu
 ```
 
-3. Install dependency.
+3. Install dependency dengan salah satu cara berikut.
 
 ```bash
 poetry install
+```
+
+Atau kalau pakai pip:
+
+```bash
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
 4. Jalankan bot.
@@ -85,12 +93,24 @@ poetry install
 poetry run python main.py
 ```
 
+Kalau pakai pip, jalankan:
+
+```bash
+python main.py
+```
+
 ## Mode Development (Auto Reload)
 
 Kalau ingin bot restart otomatis saat file Python berubah:
 
 ```bash
 poetry run python dev.py
+```
+
+Kalau pakai pip:
+
+```bash
+python dev.py
 ```
 
 Mode ini memakai `watchfiles` dan sudah mencoba mematikan proses bot lama secara otomatis agar tidak bentrok polling.
@@ -109,6 +129,7 @@ Mode ini memakai `watchfiles` dan sudah mencoba mematikan proses bot lama secara
 - Fitur hapus background memakai API rembg gratis, jadi tidak perlu `REMOVE_BG_API_KEY`.
 - Dependency utama dikelola dari `pyproject.toml` dan dikunci di `poetry.lock`.
 - `requirements.txt` disediakan untuk instalasi berbasis pip dan sudah diselaraskan dengan dependency utama project.
+- `watchfiles` ikut dimasukkan ke `requirements.txt` supaya mode `dev.py` juga bisa dipakai lewat pip.
 - Kode saham Indonesia biasanya ditulis tanpa `.JK` saat input, misalnya `BBCA`.
 - IHSG diambil melalui kode `^JKSE`.
 - TikTok link yang didukung biasanya berasal dari `tiktok.com`, `vt.tiktok.com`, atau `vm.tiktok.com`.
