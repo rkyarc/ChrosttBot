@@ -16,6 +16,8 @@ TEKS_SAMBUTAN = (
     "   Download foto, carousel, dan video Instagram\n\n"
     "🎵 <b>TikTok Downloader</b>\n"
     "   Download video TikTok tanpa watermark\n\n"
+    "📘 <b>Facebook Downloader</b>\n"
+    "   Download video Facebook tanpa watermark\n\n"
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     "💡 <i>Pilih menu di bawah untuk memulai</i>"
 )
