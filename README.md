@@ -1,6 +1,30 @@
 # Chrostt Bot
 
-Chrostt Bot adalah bot Telegram berbasis Python yang menggabungkan beberapa fitur praktis dalam satu menu: hapus background foto, cek saham Indonesia lewat Yahoo Finance, download Instagram via SaveInta, dan download video TikTok lewat tikwm.
+Chrostt Bot adalah bot Telegram berbasis Python yang menggabungkan beberapa fitur praktis dalam satu menu: hapus background foto, cek saham Indonesia lewat Yahoo Finance, download Instagram, video TikTok, hingga video Facebook.
+
+---
+
+<h2 align="center">👥 CORE TEAM</h2>
+
+<table align="center">
+  <tr>
+    <td align="center">
+      <a href="https://github.com/rkyarc">
+        <img src="https://github.com/rkyarc.png" width="100" height="100" /><br />
+        <b>rkyarc</b>
+      </a><br />
+      <sub>Author</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/RusdiEneri">
+        <img src="https://github.com/RusdiEneri.png" width="100" height="100" /><br />
+        <b>RusdiEneri</b>
+      </a><br />
+      <sub>Helper</sub>
+    </td>
+  </table>
+
+---
 
 ## Fitur
 
@@ -8,6 +32,7 @@ Chrostt Bot adalah bot Telegram berbasis Python yang menggabungkan beberapa fitu
 - Cek harga saham BEI dan IHSG secara real-time.
 - Download foto, carousel, dan video Instagram.
 - Download video TikTok, video dengan watermark, foto/slideshow, dan audio jika tersedia.
+- Download foto/video Facebook (hanya support postingan yang bersifat publik)
 - Navigasi menu dibuat dengan inline keyboard agar alurnya cepat dan sederhana.
 
 ## Struktur Project
@@ -136,6 +161,18 @@ Mode ini memakai `watchfiles` dan sudah mencoba mematikan proses bot lama secara
 - Instagram link yang didukung biasanya berasal dari `instagram.com` atau `instagr.am`.
 - Story Instagram yang berisi campuran foto dan video akan diurutkan sesuai kartu sumber, sementara kartu audio-only diabaikan.
 - Bot akan mencoba lanjut polling otomatis jika instance Telegram sempat konflik atau terputus.
+
+## Perkembangan Terbaru
+
+Berikut ringkasan pembaruan terbaru pada proyek (tanggal: 2026-08-09):
+
+- **Dukungan download Facebook publik:** Menambahkan handler dan service untuk mengunduh media publik dari Facebook.
+- **Perbaikan mekanisme dev reload:** `dev.py` sekarang lebih andal saat melakukan restart otomatis untuk mengurangi konflik polling (409 Conflict).
+- **Penyempurnaan fitur saham:** Validasi nama emiten dan pengambilan IHSG diperbaiki untuk akurasi lebih baik.
+- **Peningkatan remove-bg:** Penanganan gambar berukuran besar dan edge-case pada proses hapus background ditingkatkan.
+- **Pembaruan dependensi & perbaikan bug kecil:** Menyegarkan beberapa paket dan memperbaiki bug pelaporan dan pengiriman file.
+
+Jika Anda ingin menambahkan detail changelog per-commit, saya bisa menambahkan subseksi `Changelog` atau menautkan ke riwayat Git.
 
 ## Troubleshooting 409 Conflict
 
