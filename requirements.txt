@@ -5,3 +5,4 @@ requests>=2.34.2,<3.0.0
 feedparser>=6.0.14,<7.0.0
 cloudscraper>=1.2.71,<2.0.0
 watchfiles>=1.2.0,<2.0.0
+yt-dlp

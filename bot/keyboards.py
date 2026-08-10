@@ -14,6 +14,7 @@ def markup_menu_utama():
         InlineKeyboardButton("📷 Instagram Downloader", callback_data="menu_instagram"),
         InlineKeyboardButton("🎵 TikTok Downloader", callback_data="menu_tiktok"),
         InlineKeyboardButton("📘 Facebook Downloader", callback_data="menu_facebook"),
+        InlineKeyboardButton("▶️ Youtube Downloader", callback_data="menu_youtube"),
         InlineKeyboardButton("ℹ️ Info Bot", callback_data="menu_info"),
     )
     return markup

@@ -19,6 +19,7 @@ dependencies = [
     "feedparser (>=6.0.14,<7.0.0)",
     "cloudscraper (>=1.2.71,<2.0.0)",
     "bs4 (>=0.0.2,<0.0.3)",
+    "yt-dlp",
 ]
 
 

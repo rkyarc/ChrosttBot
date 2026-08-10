@@ -18,6 +18,8 @@ TEKS_SAMBUTAN = (
     "   Download video TikTok tanpa watermark\n\n"
     "📘 <b>Facebook Downloader</b>\n"
     "   Download video Facebook tanpa watermark\n\n"
+    "▶️ <b>Youtube Downloader</b>\n"
+    "   Download video Youtube\n\n"
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     "💡 <i>Pilih menu di bawah untuk memulai</i>"
 )
@@ -116,6 +118,23 @@ def menu_tiktok(call):
         "• 🎵 Musik/audio\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "💡 <i>Cukup paste link di chat ini, bot akan otomatis proses.</i>",
+        call.message.chat.id,
+        call.message.message_id,
+        parse_mode="HTML",
+        reply_markup=markup_kembali_menu_utama(),
+    )
+
+@tg_bot.callback_query_handler(func=lambda call: call.data == "menu_youtube")
+def menu_youtube(call):
+    tg_bot.answer_callback_query(call.id)
+    tg_bot.edit_message_text(
+        "▶️ <b>YouTube Downloader</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Kirim link YouTube (youtube.com atau youtu.be) untuk diproses.\n\n"
+        "• Video akan diunduh secara otomatis (maksimal ukuran video 50MB)\n"
+        "• Kualitas menyesuaikan dengan limit bot Telegram\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "💡 <i>Cukup paste link YouTube di chat ini, bot akan memprosesnya otomatis.</i>",
         call.message.chat.id,
         call.message.message_id,
         parse_mode="HTML",
