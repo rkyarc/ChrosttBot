@@ -4,15 +4,23 @@ import sys
 import time
 from pathlib import Path
 
-from watchfiles import watch, PythonFilter
+from watchfiles import PythonFilter, watch
 
 
 process = None
 ROOT = Path(__file__).resolve().parent
 
+# Folder yang tidak perlu memicu restart
+DIABAIKAN = {".git", ".venv", "venv", "__pycache__", "downloads", ".pytest_cache", ".ruff_cache"}
+
+
+def _abaikan(path: str) -> bool:
+    bagian = Path(path).parts
+    return any(nama in bagian for nama in DIABAIKAN)
+
 
 def start_bot():
-    """Jalankan main.py dengan python venv (sys.executable)."""
+    """Jalankan main.py dengan interpreter yang sama (venv aktif)."""
     global process
     print("[DEV] Starting bot...")
     creationflags = 0
@@ -57,15 +65,20 @@ if __name__ == "__main__":
     start_bot()
 
     try:
-        # watch() akan "bangun" setiap ada file .py yang berubah
-        for changes in watch(".", watch_filter=PythonFilter()):
-            nama_file = ", ".join(
-                sorted({os.path.basename(path) for _, path in changes})
-            )
+        for changes in watch(
+            ROOT,
+            watch_filter=PythonFilter(),
+            ignore_permission_denied=True,
+        ):
+            if changes and all(_abaikan(path) for _, path in changes):
+                continue
+
+            nama_file = ", ".join(sorted({os.path.basename(path) for _, path in changes}))
             print(f"\n[DEV] Perubahan terdeteksi: {nama_file} -> restarting...")
             stop_bot()
             time.sleep(2)  # jeda biar sesi Telegram sempat terlepas
             start_bot()
     except KeyboardInterrupt:
-        stop_bot()
         print("\n[DEV] Stopped.")
+
+    stop_bot()

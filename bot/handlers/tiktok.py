@@ -6,10 +6,12 @@ from telebot import types
 from bot import tg_bot
 from bot.keyboards import markup_download_tiktok, markup_kembali_menu_utama
 from bot.services.tiktok import TikTokScraperError, extract_tiktok, unduh_media
+from bot.sessions import SessionStore
+from bot.utils import escape_html
 
 
 # Cache hasil ekstraksi per chat, supaya tombol callback bisa mengambil datanya
-TIKTOK_SESSIONS = {}
+TIKTOK_SESSIONS = SessionStore()
 
 # Batas upload Bot API Telegram = 50MB
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -36,7 +38,7 @@ def proses_link_tiktok(message):
         info = extract_tiktok(url_tiktok)
 
         # Simpan hasil ekstraksi supaya tombol callback bisa pakai
-        TIKTOK_SESSIONS[chat_id] = info
+        TIKTOK_SESSIONS.set(chat_id, info)
 
         author = info["author"]
         content = info["content"]
@@ -49,15 +51,15 @@ def proses_link_tiktok(message):
         teks_info = (
             "🎬 <b>TikTok Downloader</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"👤 <b>{author['full_name']}</b> (@{author['username']})\n\n"
-            f"📝 <b>Caption:</b>\n"
-            f"<code>{_truncate(content['title'], 250)}</code>\n\n"
+            f"👤 <b>{escape_html(author['full_name'])}</b> (@{escape_html(author['username'])})\n\n"
+            "📝 <b>Caption:</b>\n"
+            f"<code>{escape_html(_truncate(content['title'], 250))}</code>\n\n"
             "📊 <b>Detail:</b>\n"
             f"• Tipe: {tipe}\n"
             f"• Durasi: {durasi}\n"
-            f"• ▶️ {stats.get('plays', 0):,}x ditonton\n"
-            f"• ❤️ {stats.get('likes', 0):,} suka\n"
-            f"• 🎵 {_truncate(music['title'], 60)}\n\n"
+            f"• ▶️ {_angka(stats.get('plays'))}x ditonton\n"
+            f"• ❤️ {_angka(stats.get('likes'))} suka\n"
+            f"• 🎵 {escape_html(_truncate(music['title'], 60))}\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "📥 <b>Pilih format — media dikirim langsung ke chat:</b>"
         )
@@ -76,7 +78,7 @@ def proses_link_tiktok(message):
 
     except TikTokScraperError as e:
         tg_bot.edit_message_text(
-            f"❌ <b>Gagal Mengekstrak</b>\n\n{str(e)}\n\n"
+            f"❌ <b>Gagal Mengekstrak</b>\n\n{escape_html(str(e))}\n\n"
             "<i>Pastikan link TikTok valid dan akun tidak diprivate.</i>",
             chat_id,
             pesan_loading.message_id,
@@ -85,7 +87,7 @@ def proses_link_tiktok(message):
         )
     except Exception as e:
         tg_bot.edit_message_text(
-            f"⚠️ <b>Error tidak terduga</b>\n\n<code>{str(e)[:200]}</code>",
+            f"⚠️ <b>Error tidak terduga</b>\n\n<code>{escape_html(str(e)[:200])}</code>",
             chat_id,
             pesan_loading.message_id,
             parse_mode="HTML",
@@ -117,7 +119,9 @@ def aksi_download_tiktok(call):
         if call.data == "tiktok_photos":
             images = content.get("images", [])
             if not images:
-                tg_bot.answer_callback_query(call.id, "Tidak ada foto untuk video ini.", show_alert=True)
+                tg_bot.answer_callback_query(
+                    call.id, "Tidak ada foto untuk video ini.", show_alert=True
+                )
                 return
             tg_bot.answer_callback_query(call.id, f"⏳ Mengirim {len(images)} foto...")
             kirim_foto(chat_id, images)
@@ -134,10 +138,13 @@ def aksi_download_tiktok(call):
             tg_bot.answer_callback_query(call.id, "⏳ Mengirim musik...")
             kirim_musik(chat_id, music)
 
+        else:
+            tg_bot.answer_callback_query(call.id)
+
     except Exception as e:
         tg_bot.send_message(
             chat_id,
-            f"❌ <b>Gagal mengirim media</b>\n\n<code>{str(e)[:200]}</code>",
+            f"❌ <b>Gagal mengirim media</b>\n\n<code>{escape_html(str(e)[:200])}</code>",
             parse_mode="HTML",
         )
 
@@ -146,6 +153,10 @@ def aksi_download_tiktok(call):
 
 def kirim_video(chat_id, url, title, author):
     """Download video lalu kirim sebagai video Telegram."""
+    if not url:
+        tg_bot.send_message(chat_id, "❌ Link video tidak tersedia untuk media ini.")
+        return
+
     data = unduh_media(url)
 
     if len(data) > MAX_UPLOAD_BYTES:
@@ -153,6 +164,7 @@ def kirim_video(chat_id, url, title, author):
             chat_id,
             f"⚠️ Ukuran video {len(data) // 1048576}MB melebihi batas upload Telegram (50MB).\n\n"
             f"Gunakan link langsung ini:\n{url}",
+            disable_web_page_preview=True,
         )
         return
 
@@ -171,13 +183,36 @@ def kirim_foto(chat_id, images):
             # Fallback: download manual kalau Telegram gagal fetch URL
             media = []
             for url in chunk:
-                media.append(types.InputMediaPhoto(BytesIO(unduh_media(url))))
-            tg_bot.send_media_group(chat_id, media)
+                data = unduh_media(url)
+                if len(data) > MAX_UPLOAD_BYTES:
+                    tg_bot.send_message(
+                        chat_id,
+                        f"⚠️ Foto melebihi batas upload Telegram (50MB).\n\nURL langsung:\n{url}",
+                        disable_web_page_preview=True,
+                    )
+                    continue
+                media.append(types.InputMediaPhoto(BytesIO(data)))
+            if media:
+                tg_bot.send_media_group(chat_id, media)
 
 
 def kirim_musik(chat_id, music):
     """Download musik lalu kirim sebagai audio Telegram."""
+    if not music.get("url"):
+        tg_bot.send_message(chat_id, "❌ Audio tidak tersedia untuk media ini.")
+        return
+
     data = unduh_media(music["url"])
+
+    if len(data) > MAX_UPLOAD_BYTES:
+        tg_bot.send_message(
+            chat_id,
+            "⚠️ Ukuran audio melebihi batas upload Telegram (50MB).\n\n"
+            f"URL langsung:\n{music['url']}",
+            disable_web_page_preview=True,
+        )
+        return
+
     tg_bot.send_audio(
         chat_id,
         BytesIO(data),
@@ -192,3 +227,10 @@ def _truncate(text, max_len):
     if len(text) <= max_len:
         return text
     return text[: max_len - 3] + "..."
+
+
+def _angka(nilai):
+    try:
+        return f"{int(nilai):,}".replace(",", ".")
+    except (TypeError, ValueError):
+        return "0"

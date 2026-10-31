@@ -1,5 +1,5 @@
-import re
-import cloudscraper as requests
+import cloudscraper
+import requests
 
 
 _HEADERS = {
@@ -35,12 +35,17 @@ def _full_url(value):
     return _BASE_URL + "/" + value
 
 
+def _session():
+    session = cloudscraper.create_scraper()
+    session.headers.update(_HEADERS)
+    return session
+
+
 def extract_tiktok(url: str) -> dict:
     """
     Mengekstrak info video TikTok dari URL menggunakan tikwm.com (gratis, stabil).
     """
-    session = requests.create_scraper()
-    session.headers.update(_HEADERS)
+    session = _session()
 
     try:
         response = session.post(
@@ -80,7 +85,7 @@ def extract_tiktok(url: str) -> dict:
     # Data music
     music = data.get("music_info", {}) or {}
 
-    # URL video (path relatif, perlu digabung dengan base URL)
+    # URL video (bisa path relatif, perlu digabung dengan base URL)
     video_no_wm = _full_url(data.get("play") or "")
     video_hd = _full_url(data.get("hdplay") or "")
     video_wm = _full_url(data.get("wmplay") or "")
@@ -106,7 +111,8 @@ def extract_tiktok(url: str) -> dict:
             "author": music.get("author", ""),
             "duration": music.get("duration", 0),
             "cover": _full_url(music.get("cover", "")),
-            "url": music.get("play") or _full_url(data.get("music", "")),
+            # music.play juga path relatif di tikwm, jadi wajib di-_full_url
+            "url": _full_url(music.get("play") or data.get("music") or ""),
         },
         "content": {
             "title": data.get("title", ""),
@@ -120,10 +126,10 @@ def extract_tiktok(url: str) -> dict:
         },
     }
 
+
 def unduh_media(url: str, timeout: int = 120) -> bytes:
     """Download media (video/audio/foto) sebagai bytes."""
-    session = requests.create_scraper()
-    session.headers.update(_HEADERS)
+    session = _session()
     response = session.get(url, timeout=timeout)
     response.raise_for_status()
     return response.content

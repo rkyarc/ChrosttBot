@@ -13,6 +13,7 @@ INSTAGRAM_URL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Batas upload Bot API Telegram = 50MB
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 
@@ -32,9 +33,6 @@ def proses_link_instagram(message):
         scraper.refresh_tokens()
         resp = scraper.search(url_instagram)
         media = scraper.parse_media(resp)
-
-        videos = media.get("videos", [])
-        images = media.get("images", [])
         items = media.get("items", [])
 
         if not items:
@@ -49,11 +47,14 @@ def proses_link_instagram(message):
             )
             return
 
+        jumlah_video = sum(1 for kind, _ in items if kind == "VIDEO")
+        jumlah_foto = sum(1 for kind, _ in items if kind == "FOTO")
+
         teks_info = (
             "📷 <b>Instagram Downloader</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"• Video: <b>{sum(1 for kind, _ in items if kind == 'VIDEO')}</b>\n"
-            f"• Foto: <b>{sum(1 for kind, _ in items if kind == 'FOTO')}</b>\n\n"
+            f"• Video: <b>{jumlah_video}</b>\n"
+            f"• Foto: <b>{jumlah_foto}</b>\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "📥 <i>Media sedang dikirim ke chat...</i>"
         )
@@ -105,6 +106,7 @@ def kirim_video_instagram(chat_id, scraper, url, index):
         tg_bot.send_message(
             chat_id,
             f"⚠️ Video #{index} melebihi batas upload Telegram (50MB).\n\nURL langsung:\n{url}",
+            disable_web_page_preview=True,
         )
         return
 
@@ -123,6 +125,14 @@ def kirim_foto_instagram(chat_id, scraper, images):
             media = [types.InputMediaPhoto(url) for url in chunk]
             tg_bot.send_media_group(chat_id, media)
         except Exception:
+            # Fallback: unduh manual kalau Telegram gagal fetch URL langsung
             for url in chunk:
                 data = scraper.unduh_media(url)
+                if len(data) > MAX_UPLOAD_BYTES:
+                    tg_bot.send_message(
+                        chat_id,
+                        f"⚠️ Foto melebihi batas upload Telegram (50MB).\n\nURL langsung:\n{url}",
+                        disable_web_page_preview=True,
+                    )
+                    continue
                 tg_bot.send_photo(chat_id, BytesIO(data))

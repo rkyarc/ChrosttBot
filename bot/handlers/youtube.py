@@ -1,13 +1,17 @@
-import re
 import os
-from bot import tg_bot
-from bot.services.youtube import download_youtube_video
+import re
 
-# Regex untuk mendeteksi link YouTube otomatis
+from bot import tg_bot
+from bot.keyboards import markup_kembali_menu_utama
+from bot.services.youtube import YouTubeDownloadError, download_youtube_video
+from bot.utils import escape_html
+
+# Regex untuk mendeteksi link YouTube otomatis (video, shorts, live)
 YOUTUBE_URL_PATTERN = re.compile(
-    r"(https?://)?(www\.)?(youtube\.com|youtu\.?be)/.+",
-    re.IGNORECASE
+    r"https?://(?:www\.|m\.)?(?:youtube\.com/(?:watch\?|shorts/|live/)|youtu\.be/)[^\s]+",
+    re.IGNORECASE,
 )
+
 
 @tg_bot.message_handler(func=lambda m: bool(YOUTUBE_URL_PATTERN.search(m.text or "")))
 def proses_link_youtube(message):
@@ -18,31 +22,45 @@ def proses_link_youtube(message):
     pesan_loading = tg_bot.send_message(
         chat_id,
         "⏳ <i>Sedang mendownload video YouTube (bisa makan waktu), mohon tunggu...</i>",
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
 
-    # 1. Mulai download menggunakan file service tadi
-    file_path = download_youtube_video(url)
+    file_path = None
+    try:
+        file_path = download_youtube_video(url)
 
-    # 2. Jika berhasil didownload dan file-nya ada
-    if file_path and os.path.exists(file_path):
-        try:
-            with open(file_path, 'rb') as video:
-                tg_bot.send_video(chat_id, video, caption="🎬 Berhasil didownload!")
-            
-            # Hapus pesan loading jika sukses
-            tg_bot.delete_message(chat_id, pesan_loading.message_id)
-        except Exception as e:
-            tg_bot.edit_message_text(f"⚠️ Gagal mengirim video ke Telegram: {e}", chat_id, pesan_loading.message_id)
-        finally:
-            # Hapus file video lokal (di PC/Server) setelah dikirim untuk menghemat disk space
-            if os.path.exists(file_path):
-                os.remove(file_path)
-    else:
-        # Jika gagal atau video terlalu besar (>50MB)
+        with open(file_path, "rb") as video:
+            tg_bot.send_video(
+                chat_id,
+                video,
+                caption="🎬 Berhasil didownload!",
+                supports_streaming=True,
+                timeout=180,
+            )
+
+        tg_bot.delete_message(chat_id, pesan_loading.message_id)
+
+    except YouTubeDownloadError as e:
         tg_bot.edit_message_text(
-            "❌ <b>Gagal mendownload video</b>\nMungkin videonya terlalu besar dari limit Telegram (50MB) atau link diprivate.",
+            f"❌ <b>Gagal mendownload video</b>\n\n{escape_html(e)}",
             chat_id,
             pesan_loading.message_id,
-            parse_mode="HTML"
+            parse_mode="HTML",
+            reply_markup=markup_kembali_menu_utama(),
         )
+    except Exception as e:
+        tg_bot.edit_message_text(
+            f"⚠️ <b>Gagal mengirim video ke Telegram</b>\n\n"
+            f"<code>{escape_html(str(e)[:200])}</code>",
+            chat_id,
+            pesan_loading.message_id,
+            parse_mode="HTML",
+            reply_markup=markup_kembali_menu_utama(),
+        )
+    finally:
+        # Hapus file video lokal setelah dikirim supaya disk tidak penuh
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass

@@ -19,7 +19,7 @@ _HEADERS = {
 }
 
 # Cache hasil fetch biar tidak re-fetch tiap ganti halaman
-_CACHE = {"berita": [], "timestamp": 0}
+_CACHE = {"berita": [], "timestamp": 0.0}
 CACHE_DURATION = 300  # 5 menit
 
 
@@ -51,6 +51,8 @@ def ambil_berita_terbaru(jumlah: int = 9) -> list[dict]:
     feed = feedparser.parse(response.content)
 
     if not feed.entries:
+        if _CACHE["berita"]:
+            return _CACHE["berita"][:jumlah]
         raise IDXNewsError("Tidak ada berita ditemukan")
 
     berita_list = []
@@ -77,7 +79,7 @@ def ambil_berita_terbaru(jumlah: int = 9) -> list[dict]:
 def hapus_cache():
     """Hapus cache supaya fetch ulang dari Google News (dipakai tombol Refresh)."""
     _CACHE["berita"] = []
-    _CACHE["timestamp"] = 0
+    _CACHE["timestamp"] = 0.0
 
 
 def _pisah_judul_sumber(judul_full: str) -> tuple:
