@@ -1,7 +1,8 @@
-import re
+﻿import re
 import threading
 
 from bot import tg_bot
+from bot.admin import apakah_admin
 from bot.ai_prompt import (
     MAKS_KARAKTER_RIWAYAT,
     MAKS_PESAN_RIWAYAT,
@@ -31,7 +32,7 @@ def _lock_chat(chat_id: int) -> threading.Lock:
         return lock
 
 
-SIMBOL = "✦"
+SIMBOL = "âœ¦"
 
 # Pesan berisi link media tetap diproses downloader, bukan AI
 POLA_LINK = re.compile(
@@ -131,11 +132,21 @@ def _kirim_ai(chat_id: int, teks_markdown: str, markup=None) -> None:
             )
 
 
-def _jawab(chat_id: int, pertanyaan: str, tampilkan_judul: bool = True) -> None:
+def _user_id(message) -> int | None:
+    """ID user pengirim, aman kalau from_user tidak ada (misal channel post)."""
+    return getattr(getattr(message, "from_user", None), "id", None)
+
+
+def _jawab(
+    chat_id: int,
+    pertanyaan: str,
+    tampilkan_judul: bool = True,
+    user_id: int | None = None,
+) -> None:
     if not tersedia():
         tg_bot.send_message(
             chat_id,
-            "⚙️ <b>AI Assistant belum aktif</b>\n\n"
+            "âš™ï¸ <b>AI Assistant belum aktif</b>\n\n"
             "Isi <code>AI_API_KEY</code> di file <code>.env</code> lalu restart bot.",
             parse_mode="HTML",
             reply_markup=markup_kembali_menu_utama(),
@@ -152,11 +163,11 @@ def _jawab(chat_id: int, pertanyaan: str, tampilkan_judul: bool = True) -> None:
 
         try:
             with _Mengetik(chat_id):
-                hasil = tanya(chat_id, pesan)
+                hasil = tanya(chat_id, pesan, admin=apakah_admin(user_id))
         except AIError as e:
             tg_bot.send_message(
                 chat_id,
-                f"⚠️ <b>AI tidak bisa menjawab sekarang</b>\n\n{e}",
+                f"âš ï¸ <b>AI tidak bisa menjawab sekarang</b>\n\n{e}",
                 parse_mode="HTML",
                 reply_markup=markup_ai(),
             )
@@ -182,7 +193,7 @@ def masuk_mode_ai(message):
     if not tersedia():
         tg_bot.send_message(
             chat_id,
-            "⚙️ <b>AI Assistant belum aktif</b>\n\n"
+            "âš™ï¸ <b>AI Assistant belum aktif</b>\n\n"
             "Isi <code>AI_API_KEY</code> di file <code>.env</code> lalu restart bot.",
             parse_mode="HTML",
             reply_markup=markup_kembali_menu_utama(),
@@ -203,7 +214,7 @@ def masuk_mode_ai(message):
         )
         return
 
-    _jawab(chat_id, pertanyaan)
+    _jawab(chat_id, pertanyaan, user_id=_user_id(message))
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "menu_ai")
@@ -213,7 +224,7 @@ def buka_ai_dari_menu(call):
 
     if not tersedia():
         tg_bot.edit_message_text(
-            "⚙️ <b>AI Assistant belum aktif</b>\n\n"
+            "âš™ï¸ <b>AI Assistant belum aktif</b>\n\n"
             "Isi <code>AI_API_KEY</code> di file <code>.env</code> lalu restart bot.",
             chat_id,
             call.message.message_id,
@@ -235,7 +246,7 @@ def buka_ai_dari_menu(call):
 @tg_bot.callback_query_handler(func=lambda call: call.data == "ai_reset")
 def reset_obrolan(call):
     _reset(call.message.chat.id)
-    tg_bot.answer_callback_query(call.id, "🧹 Riwayat obrolan dihapus.")
+    tg_bot.answer_callback_query(call.id, "ðŸ§¹ Riwayat obrolan dihapus.")
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "ai_keluar")
@@ -243,7 +254,7 @@ def keluar_mode_ai(call):
     AI_SESSIONS.clear(call.message.chat.id)
     tg_bot.answer_callback_query(call.id, "Keluar dari mode AI.")
     tg_bot.edit_message_text(
-        "✅ <b>Mode AI dinonaktifkan.</b>\n\n"
+        "âœ… <b>Mode AI dinonaktifkan.</b>\n\n"
         "Bot kembali ke mode normal. Ketik /ai kalau mau lanjut ngobrol lagi.",
         call.message.chat.id,
         call.message.message_id,
@@ -256,7 +267,7 @@ def keluar_mode_ai(call):
 def petunjuk_tanya(call):
     tg_bot.answer_callback_query(
         call.id,
-        "Ketik pertanyaanmu langsung di chat ini 🙂",
+        "Ketik pertanyaanmu langsung di chat ini ðŸ™‚",
         show_alert=True,
     )
 
@@ -283,7 +294,7 @@ def tangkap_pertanyaan_ai(message):
         AI_SESSIONS.clear(message.chat.id)
         tg_bot.send_message(
             message.chat.id,
-            "✅ Mode AI dinonaktifkan.",
+            "âœ… Mode AI dinonaktifkan.",
             reply_markup=markup_ai_tertutup(),
         )
         return
@@ -292,12 +303,12 @@ def tangkap_pertanyaan_ai(message):
         _reset(message.chat.id)
         tg_bot.send_message(
             message.chat.id,
-            "🧹 Riwayat obrolan dihapus. Silakan mulai pertanyaan baru.",
+            "ðŸ§¹ Riwayat obrolan dihapus. Silakan mulai pertanyaan baru.",
             reply_markup=markup_ai(),
         )
         return
 
-    _jawab(message.chat.id, teks, tampilkan_judul=False)
+    _jawab(message.chat.id, teks, tampilkan_judul=False, user_id=_user_id(message))
 
 
 @tg_bot.message_handler(commands=["ai_off"])
@@ -305,7 +316,7 @@ def matikan_mode_ai(message):
     AI_SESSIONS.clear(message.chat.id)
     tg_bot.send_message(
         message.chat.id,
-        "✅ <b>Mode AI dinonaktifkan.</b>\n\nBot kembali ke mode normal.",
+        "âœ… <b>Mode AI dinonaktifkan.</b>\n\nBot kembali ke mode normal.",
         parse_mode="HTML",
         reply_markup=markup_kembali_menu_utama(),
     )
@@ -320,9 +331,9 @@ def status_ai(message):
     tg_bot.send_message(
         chat_id,
         f"{SIMBOL} <b>Status AI Assistant</b>\n\n"
-        f"• Koneksi: {'<b>siap</b>' if siap else '<b>belum dikonfigurasi</b>'}\n"
-        f"• Model: <code>{model_aktif()}</code>\n"
-        f"• Mode chat: {mode}",
+        f"â€¢ Koneksi: {'<b>siap</b>' if siap else '<b>belum dikonfigurasi</b>'}\n"
+        f"â€¢ Model: <code>{model_aktif()}</code>\n"
+        f"â€¢ Mode chat: {mode}",
         parse_mode="HTML",
         reply_markup=markup_ai() if siap else markup_kembali_menu_utama(),
     )
@@ -340,3 +351,5 @@ def sapa_ai(message):
         parse_mode="HTML",
         reply_markup=markup_ai(),
     )
+
+

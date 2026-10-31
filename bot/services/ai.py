@@ -68,9 +68,14 @@ def _pesan_error(status: int, body: str) -> str:
     return f"Permintaan AI gagal (HTTP {status})."
 
 
-def tanya(chat_id: int, riwayat: list[dict]) -> dict:
+def tanya(chat_id: int, riwayat: list[dict], admin: bool = False) -> dict:
     """
     Kirim percakapan ke endpoint OpenAI-compatible.
+
+    Args:
+        chat_id: dipakai untuk rate limit per chat.
+        riwayat: daftar pesan OpenAI (system + history + user).
+        admin: kalau True, pakai AI_MAX_TOKENS_ADMIN.
 
     Returns:
         {"teks": str, "model": str, "total_tokens": int}
@@ -82,11 +87,13 @@ def tanya(chat_id: int, riwayat: list[dict]) -> dict:
 
     _batasi_rate(chat_id)
 
+    batas_token = config.AI_MAX_TOKENS_ADMIN if admin else config.AI_MAX_TOKENS
+
     payload = {
         "model": config.AI_MODEL,
         "messages": riwayat,
         "temperature": config.AI_TEMPERATURE,
-        "max_tokens": config.AI_MAX_TOKENS,
+        "max_tokens": batas_token,
     }
     headers = {
         "Authorization": f"Bearer {config.AI_API_KEY}",

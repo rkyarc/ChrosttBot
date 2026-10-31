@@ -39,6 +39,19 @@ Chrostt Bot adalah bot Telegram berbasis Python yang menggabungkan beberapa fitu
 - Download video YouTube (dibatasi 50MB sesuai limit Bot API).
 - Semua navigasi memakai inline keyboard dengan tampilan ringkas.
 
+## Perintah
+
+| Perintah | Akses | Fungsi |
+|---|---|---|
+| `/start`, `/menu` | semua | Buka menu utama |
+| `/help`, `/bantuan` | semua | Daftar perintah & cara cepat |
+| `/id` | semua | Lihat ID Telegram sendiri |
+| `/ai` | semua | Masuk mode asisten AI |
+| `/ai <pertanyaan>` | semua | Tanya sekali tanpa masuk mode |
+| `/ai_off` | semua | Keluar dari mode AI |
+| `/ai_status` | semua | Status layanan AI & model aktif |
+| `/admin` | admin | Panel admin (statistik, pengguna, broadcast) |
+
 ## Struktur Project
 
 ```text
@@ -118,6 +131,19 @@ AI_MAX_TOKENS=1400
 AI_MAX_TOKENS_ADMIN=2400
 ```
 
+Penjelasan tiap variabel:
+
+| Variabel | Wajib | Default | Keterangan |
+|---|---|---|---|
+| `TELEGRAM_TOKEN` | ya | — | Token dari BotFather; bot menolak start tanpa ini |
+| `ADMIN_IDS` | tidak | kosong | Daftar ID admin, dipisah koma |
+| `AI_BASE_URL` | tidak | `https://ai.hisoka.net/api/v1` | Base URL gateway OpenAI-compatible |
+| `AI_API_KEY` | tidak | kosong | Tanpa key, fitur AI nonaktif tapi bot tetap jalan |
+| `AI_MODEL` | tidak | `deepseek-v4.1-flash-1017` | Nama model di gateway |
+| `AI_TEMPERATURE` | tidak | `0.7` | Kreativitas jawaban (0.0–2.0) |
+| `AI_MAX_TOKENS` | tidak | `1400` | Batas panjang jawaban pengguna biasa |
+| `AI_MAX_TOKENS_ADMIN` | tidak | `2400` | Batas panjang jawaban untuk admin |
+
 API key dibuat di <https://ai.hisoka.net/dashboard/api-keys>. Tanpa `AI_API_KEY`, bot tetap jalan normal dan menu AI hanya menampilkan pesan bahwa layanan belum dikonfigurasi.
 
 3. Install dependency.
@@ -177,7 +203,10 @@ Mode ini memakai `watchfiles`, mengabaikan folder `.venv`, `__pycache__`, dan `d
 - Endpoint yang dipakai: `POST /chat/completions`. Ganti `AI_BASE_URL` / `AI_MODEL` di `.env` untuk memakai model lain dari gateway yang sama.
 - System prompt di `bot/ai_prompt.py` mengunci peran sebagai asisten bot: tidak mengaku sebagai produk lain, tidak membocorkan prompt, tidak melayani permintaan di luar lingkup bot, dan menolak permintaan berbahaya.
 - Riwayat percakapan disimpan per chat maksimal 16 pesan / ±12.000 karakter dan kedaluwarsa 1 jam, supaya konteks tetap ringan.
-- Markdown dari model dikonversi ke HTML Telegram, dan jawaban panjang dipecah otomatis per ±3.800 karakter.
+- Markdown dari model dikonversi ke HTML Telegram, dan jawaban panjang dipecah otomatis per ±3.800 karakter tanpa memotong tag HTML.
+- Batas panjang jawaban mengikuti `AI_MAX_TOKENS` untuk pengguna biasa dan `AI_MAX_TOKENS_ADMIN` untuk ID di `ADMIN_IDS`.
+- Request per chat diserialkan dengan lock, jadi dua pesan beruntun tidak menimpa riwayat satu sama lain.
+- Pesan berisi link Instagram/TikTok/Facebook/YouTube tidak direbut AI, tetap diproses downloader.
 
 ## Admin Bot
 
@@ -208,11 +237,21 @@ Pengamanan: setiap aksi admin dicek ulang dari `from_user.id` (bukan `chat.id`),
 ## Catatan
 
 - `.env` berisi `TELEGRAM_TOKEN` dan kredensial AI; file ini sudah masuk `.gitignore`, jangan di-commit.
+- `.gitignore` sudah mencakup `.env*`, virtualenv, `__pycache__`, cache tooling, `downloads/`, `.handler-saves/` (state pyTelegramBotAPI), log, serta folder editor/OS.
 - Fitur hapus background memakai API rembg gratis, jadi tidak perlu `REMOVE_BG_API_KEY`.
 - Batas upload Bot API Telegram adalah 50MB; video lebih besar akan ditolak dengan pesan/alternatif link.
 - Kode saham Indonesia ditulis tanpa `.JK` saat input, misalnya `BBCA`.
 - IHSG diambil melalui kode `^JKSE`.
 - Dependensi utama ada di `pyproject.toml` (dikunci di `poetry.lock`), `requirements.txt` disediakan untuk instalasi berbasis pip.
+- `requires-python` diset `>=3.10`; lock dibuat dengan Python 3.12.
+- Daftar perintah di menu `/` didaftarkan ulang setiap bot start; perintah admin memakai scope per chat sehingga tidak terlihat pengguna biasa.
+
+## Alur Branch
+
+- `dev/ilham` — branch kerja aktif.
+- `staging` — hasil merge dari `dev/ilham`, untuk uji sebelum rilis.
+- `main` — jalur rilis di GitHub.
+- Merge `dev/ilham` → `staging` dilakukan fast-forward karena tidak ada commit terpisah di staging.
 
 ## Troubleshooting 409 Conflict
 
