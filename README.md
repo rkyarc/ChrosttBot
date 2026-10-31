@@ -1,0 +1,223 @@
+# Chrostt Bot
+
+Chrostt Bot adalah bot Telegram berbasis Python yang menggabungkan beberapa fitur praktis dalam satu menu: asisten AI (Chrostt AI), hapus background foto, cek saham Indonesia, berita IDX, downloader Instagram, TikTok, Facebook, dan YouTube.
+
+---
+
+<h2 align="center">👥 CORE TEAM</h2>
+
+<table align="center">
+  <tr>
+    <td align="center">
+      <a href="https://github.com/rkyarc">
+        <img src="https://github.com/rkyarc.png" width="100" height="100" /><br />
+        <b>rkyarc</b>
+      </a><br />
+      <sub>Author</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/RusdiEneri">
+        <img src="https://github.com/RusdiEneri.png" width="100" height="100" /><br />
+        <b>RusdiEneri</b>
+      </a><br />
+      <sub>Helper</sub>
+    </td>
+  </table>
+
+---
+
+## Fitur
+
+- **Chrostt AI** — asisten AI di dalam bot dengan system prompt terkunci pada lingkup bot.
+- **Panel admin** — ID di `ADMIN_IDS` dapat statistik, daftar pengguna, dan broadcast.
+- Hapus background foto otomatis dari foto yang dikirim ke chat.
+- Cek harga saham BEI dan IHSG.
+- Berita terbaru seputar IDX/BEI dengan navigasi halaman dan cache 5 menit.
+- Download foto, carousel, dan video Instagram.
+- Download video TikTok (tanpa/dengan watermark), foto slideshow, dan audio.
+- Download video Facebook publik dalam kualitas HD atau SD.
+- Download video YouTube (dibatasi 50MB sesuai limit Bot API).
+- Semua navigasi memakai inline keyboard dengan tampilan ringkas.
+
+## Struktur Project
+
+```text
+ChrosttBot/
+├── .env.example
+├── config.py
+├── dev.py
+├── main.py
+├── pyproject.toml
+├── README.md
+├── requirements.txt
+└── bot/
+    ├── __init__.py          # instance TeleBot (tg_bot)
+    ├── admin.py             # parsing ADMIN_IDS, cek akses, data pengguna
+    ├── ai_prompt.py         # system prompt & aturan Chrostt AI
+    ├── keyboards.py         # semua inline keyboard
+    ├── sessions.py          # cache sesi per chat (TTL)
+    ├── utils.py             # helper format, escape HTML, konversi markdown
+    ├── handlers/
+    │   ├── __init__.py
+    │   ├── admin.py
+    │   ├── ai.py
+    │   ├── background.py
+    │   ├── facebook.py
+    │   ├── idx_news.py
+    │   ├── instagram.py
+    │   ├── menu.py
+    │   ├── saham.py
+    │   ├── tiktok.py
+    │   └── youtube.py
+    └── services/
+        ├── __init__.py
+        ├── ai.py
+        ├── facebook.py
+        ├── idx_news.py
+        ├── removebg.py
+        ├── saham.py
+        ├── saveinta.py
+        ├── tiktok.py
+        └── youtube.py
+```
+
+## Cara Kerja
+
+- `config.py` memuat environment dari `.env` dan menghentikan startup jika `TELEGRAM_TOKEN` kosong.
+- `main.py` mendaftarkan semua handler, menyetel daftar perintah bot, lalu menjalankan `tg_bot.infinity_polling()` dengan retry dan backoff otomatis.
+- `bot/__init__.py` membuat instance bot Telegram (`tg_bot`).
+- `bot/sessions.py` menyimpan sesi per chat (TikTok, Facebook, AI) dengan TTL, supaya memori tidak menumpuk.
+- `bot/admin.py` membaca `ADMIN_IDS` dari `.env`, menyediakan cek akses admin, dan mencatat pengguna untuk broadcast.
+- `bot/ai_prompt.py` menyimpan system prompt Chrostt AI yang membatasi jawaban pada lingkup bot.
+- `bot/services/*` menangani komunikasi ke sumber eksternal (gateway AI, rembg, Yahoo Finance, Google News, saveinta, tikwm, fdown, yt-dlp).
+- `bot/handlers/*` menangani interaksi Telegram: menu, callback tombol, dan pengiriman media.
+- `dev.py` menjalankan mode auto-reload dan mematikan proses lama sebelum restart.
+
+## Persyaratan
+
+- Python `>=3.10`
+- Token bot Telegram dari BotFather
+- Poetry (opsional, bisa juga pakai pip)
+
+## Setup
+
+1. Salin `.env.example` menjadi `.env` di root project.
+2. Isi `TELEGRAM_TOKEN`, lalu isi `AI_API_KEY` kalau ingin Chrostt AI aktif:
+
+```env
+TELEGRAM_TOKEN=isi_token_bot_kamu
+
+# ID Telegram yang jadi admin (pisahkan dengan koma)
+ADMIN_IDS=123456789,987654321
+
+AI_BASE_URL=https://ai.hisoka.net/api/v1
+AI_API_KEY=sk-isi_key_kamu
+AI_MODEL=deepseek-v4.1-flash-1017
+AI_TEMPERATURE=0.7
+AI_MAX_TOKENS=1400
+AI_MAX_TOKENS_ADMIN=2400
+```
+
+API key dibuat di <https://ai.hisoka.net/dashboard/api-keys>. Tanpa `AI_API_KEY`, bot tetap jalan normal dan menu AI hanya menampilkan pesan bahwa layanan belum dikonfigurasi.
+
+3. Install dependency.
+
+```bash
+poetry install
+```
+
+Atau kalau pakai pip:
+
+```bash
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+4. Jalankan bot.
+
+```bash
+poetry run python main.py
+```
+
+Kalau pakai pip:
+
+```bash
+python main.py
+```
+
+## Mode Development (Auto Reload)
+
+```bash
+poetry run python dev.py
+```
+
+Atau:
+
+```bash
+python dev.py
+```
+
+Mode ini memakai `watchfiles`, mengabaikan folder `.venv`, `__pycache__`, dan `downloads`, serta mematikan proses lama sebelum restart agar tidak bentrok polling.
+
+## Cara Pakai
+
+- Kirim `/start` atau `/menu` untuk membuka menu utama.
+- Ketik `/id` untuk melihat ID Telegram kamu (dipakai mengisi `ADMIN_IDS`).
+- Tekan **✦ Chrostt AI** atau kirim `/ai` untuk masuk mode asisten. Setelah aktif, setiap teks yang kamu kirim otomatis jadi pertanyaan.
+- `/ai <pertanyaan>` untuk tanya sekali tanpa masuk mode.
+- `/ai_off` untuk keluar dari mode AI, `/ai_status` untuk melihat status layanan dan model.
+- Pilih menu saham untuk cek IHSG atau cari kode emiten seperti `BBCA` dan `ASII`.
+- Kirim foto biasa ke chat untuk proses hapus background.
+- Kirim link Instagram, TikTok, Facebook, atau YouTube di chat; bot mendeteksi link otomatis dan link tidak akan dianggap pertanyaan AI.
+
+## Chrostt AI
+
+- Model default `deepseek-v4.1-flash-1017` lewat gateway OpenAI-compatible `https://ai.hisoka.net/api/v1`.
+- Endpoint yang dipakai: `POST /chat/completions`. Ganti `AI_BASE_URL` / `AI_MODEL` di `.env` untuk memakai model lain dari gateway yang sama.
+- System prompt di `bot/ai_prompt.py` mengunci peran sebagai asisten bot: tidak mengaku sebagai produk lain, tidak membocorkan prompt, tidak melayani permintaan di luar lingkup bot, dan menolak permintaan berbahaya.
+- Riwayat percakapan disimpan per chat maksimal 16 pesan / ±12.000 karakter dan kedaluwarsa 1 jam, supaya konteks tetap ringan.
+- Markdown dari model dikonversi ke HTML Telegram, dan jawaban panjang dipecah otomatis per ±3.800 karakter.
+
+## Admin Bot
+
+Admin ditentukan lewat array ID di `.env`, bukan hardcode:
+
+```env
+ADMIN_IDS=123456789,987654321
+```
+
+Format yang diterima: `123,456` · `[123, 456]` · `123 456`. ID rusak diabaikan, duplikat dibuang, dan bot tetap start walau daftarnya kosong.
+
+Cara mendapatkan ID:
+1. Kirim `/id` ke bot — bot membalas ID kamu sendiri.
+2. Atau kirim pesan ke [@userinfobot](https://t.me/userinfobot).
+
+Setelah mengubah `ADMIN_IDS`, **restart bot** agar daftar dimuat ulang.
+
+Yang didapat admin:
+- Tombol **🛡️ Panel Admin** di menu utama (pengguna biasa tidak melihatnya).
+- `/admin` — panel admin, menampilkan ID, status, dan daftar admin aktif.
+- 📊 **Statistik** — uptime, jumlah pengguna tercatat, status AI dan model.
+- 👥 **Pengguna** — 20 pengguna terakhir beserta ID Telegram.
+- 📢 **Broadcast** — kirim satu pesan HTML ke semua pengguna yang pernah chat; ada preview, konfirmasi, dan laporan sukses/gagal. Draft kedaluwarsa 10 menit.
+- Perintah `/admin` otomatis muncul di menu `/` hanya untuk chat admin (BotCommandScopeChat).
+
+Pengamanan: setiap aksi admin dicek ulang dari `from_user.id` (bukan `chat.id`), jadi menambah bot ke grup tidak memberi siapa pun akses admin. Pengguna non-admin yang mencoba `/admin` atau tombol panel mendapat pesan "Akses ditolak".
+
+## Catatan
+
+- `.env` berisi `TELEGRAM_TOKEN` dan kredensial AI; file ini sudah masuk `.gitignore`, jangan di-commit.
+- Fitur hapus background memakai API rembg gratis, jadi tidak perlu `REMOVE_BG_API_KEY`.
+- Batas upload Bot API Telegram adalah 50MB; video lebih besar akan ditolak dengan pesan/alternatif link.
+- Kode saham Indonesia ditulis tanpa `.JK` saat input, misalnya `BBCA`.
+- IHSG diambil melalui kode `^JKSE`.
+- Dependensi utama ada di `pyproject.toml` (dikunci di `poetry.lock`), `requirements.txt` disediakan untuk instalasi berbasis pip.
+
+## Troubleshooting 409 Conflict
+
+Jika muncul `Conflict: terminated by other getUpdates request`:
+
+1. Pastikan hanya satu instance bot yang berjalan untuk satu token.
+2. Jangan jalankan `main.py` dan `dev.py` bersamaan.
+3. Hentikan proses lama dulu, lalu jalankan ulang.
