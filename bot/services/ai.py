@@ -4,6 +4,7 @@ import time
 import requests
 
 import config
+from bot.services import websearch
 
 
 class AIError(Exception):
@@ -13,6 +14,13 @@ class AIError(Exception):
 _last_request: dict[int, float] = {}
 MIN_INTERVAL = 1.5  # detik antar request per chat
 
+# Batas putaran tool-calling, supaya model tidak bisa berputar tanpa henti.
+# 2 putaran tool + 1 putaran jawaban final = maksimal 3 request ke model.
+MAKS_PUTARAN_TOOL = 2
+
+# Batas jumlah tool yang dieksekusi per putaran (model kadang minta banyak sekaligus)
+MAKS_TOOL_PER_PUTARAN = 2
+
 
 def tersedia() -> bool:
     return config.AI_ENABLED
@@ -20,6 +28,17 @@ def tersedia() -> bool:
 
 def model_aktif() -> str:
     return config.AI_MODEL
+
+
+def web_aktif() -> bool:
+    """Web search hanya jalan kalau diaktifkan dan AI-nya siap."""
+    return config.AI_ENABLED and config.AI_WEB_SEARCH
+
+
+def daftar_tool() -> list[dict]:
+    if not web_aktif():
+        return []
+    return [websearch.SKEMA_WEB_SEARCH, websearch.SKEMA_BACA_HALAMAN]
 
 
 def _batasi_rate(chat_id: int) -> None:
@@ -46,55 +65,99 @@ def _normalisasi_konten(konten) -> str:
     return str(konten or "")
 
 
-def _pesan_error(status: int, body: str) -> str:
-    kode = ""
+def _muat_json(teks: str):
+    """Parse JSON dari gateway.
+
+    Gateway kadang menambahkan sisa SSE (`data: [DONE]`) setelah JSON utama,
+    sehingga json.loads() gagal dengan "Extra data". Ambil objek JSON pertama.
+    """
+    teks = (teks or "").strip()
+    if not teks:
+        raise ValueError("Body kosong.")
+
     try:
-        data = json.loads(body)
-        err = data.get("error") or {}
-        kode = str(err.get("code") or "")
-    except (ValueError, AttributeError):
+        return json.loads(teks)
+    except ValueError:
         pass
+
+    dekoder = json.JSONDecoder()
+    try:
+        objek, _ = dekoder.raw_decode(teks)
+        return objek
+    except ValueError:
+        raise ValueError("Body bukan JSON yang valid.")
+
+
+def _detail_error(body: str) -> tuple[str, str]:
+    """Ambil (code, message) dari body error gateway."""
+    try:
+        data = _muat_json(body)
+    except ValueError:
+        return "", ""
+
+    err = data.get("error") or {}
+    if not isinstance(err, dict):
+        return "", ""
+    return str(err.get("code") or ""), str(err.get("message") or "")
+
+
+def _pesan_error(status: int, body: str) -> str:
+    kode, pesan = _detail_error(body)
+    pesan_rendah = pesan.lower()
+
+    # Gateway memakai 403 + code "insufficient_quota" untuk model yang tidak
+    # diizinkan, jadi kode error saja tidak cukup; cek isi pesannya dulu.
+    model_ditolak = "not allowed to use model" in pesan_rendah
+    model_hilang = "model not found" in pesan_rendah or "unknown model" in pesan_rendah
+
+    if model_ditolak or model_hilang:
+        return (
+            f"Model '{model_aktif()}' tidak tersedia untuk API key ini.\n"
+            "Cek AI_MODEL di .env, atau pakai model lain dari gateway."
+        )
 
     if status == 401 or kode == "invalid_api_key":
         return "API key AI tidak valid. Cek AI_API_KEY di file .env."
-    if status == 402 or kode in ("insufficient_balance", "insufficient_quota"):
-        return "Saldo/kuota AI habis. Top up dulu di dashboard penyedia model."
+
     if status == 429 or kode == "rate_limit_exceeded":
         return "Terlalu banyak permintaan ke AI. Tunggu sebentar lalu coba lagi."
+
+    if status == 402 or kode == "insufficient_balance":
+        return "Saldo AI habis. Top up dulu di dashboard penyedia model."
+
     if status == 404:
-        return f"Model tidak ditemukan: {model_aktif()}."
+        if kode == "not_found" and "endpoint" in pesan_rendah:
+            return "Endpoint AI tidak ditemukan. Cek AI_BASE_URL di .env."
+        return f"Model '{model_aktif()}' tidak ditemukan di gateway."
+
+    if status == 403 or kode == "permission_error":
+        return "API key tidak punya izin untuk permintaan ini. Cek paket/limit akun."
+
     if status >= 500:
         return "Server AI sedang bermasalah. Coba lagi beberapa saat."
+
     return f"Permintaan AI gagal (HTTP {status})."
 
 
-def tanya(chat_id: int, riwayat: list[dict], admin: bool = False) -> dict:
-    """
-    Kirim percakapan ke endpoint OpenAI-compatible.
-
-    Args:
-        chat_id: dipakai untuk rate limit per chat.
-        riwayat: daftar pesan OpenAI (system + history + user).
-        admin: kalau True, pakai AI_MAX_TOKENS_ADMIN.
-
-    Returns:
-        {"teks": str, "model": str, "total_tokens": int}
-    """
-    if not config.AI_ENABLED:
-        raise AIError(
-            "Fitur AI belum aktif. Isi AI_API_KEY di file .env lalu restart bot."
+def model_tersedia() -> list[str]:
+    """Daftar model yang bisa dipakai API key ini (best effort)."""
+    try:
+        response = requests.get(
+            f"{config.AI_BASE_URL}/models",
+            headers={"Authorization": f"Bearer {config.AI_API_KEY}"},
+            timeout=20,
         )
+        if response.status_code != 200:
+            return []
+        data = _muat_json(response.text)
+    except (requests.RequestException, ValueError):
+        return []
 
-    _batasi_rate(chat_id)
+    return [m.get("id", "") for m in data.get("data", []) if m.get("id")]
 
-    batas_token = config.AI_MAX_TOKENS_ADMIN if admin else config.AI_MAX_TOKENS
 
-    payload = {
-        "model": config.AI_MODEL,
-        "messages": riwayat,
-        "temperature": config.AI_TEMPERATURE,
-        "max_tokens": batas_token,
-    }
+def _post(payload: dict) -> dict:
+    """POST ke /chat/completions dengan error handling seragam."""
     headers = {
         "Authorization": f"Bearer {config.AI_API_KEY}",
         "Content-Type": "application/json",
@@ -118,31 +181,200 @@ def tanya(chat_id: int, riwayat: list[dict], admin: bool = False) -> dict:
     if response.status_code != 200:
         raise AIError(_pesan_error(response.status_code, response.text))
 
+    # Jangan pakai response.json(): gateway menempelkan sisa SSE di belakang JSON
     try:
-        data = response.json()
+        return _muat_json(response.text)
     except ValueError:
         raise AIError("Respons AI bukan JSON yang valid.")
 
-    pilihan = data.get("choices") or []
-    if not pilihan:
-        raise AIError("AI tidak mengembalikan jawaban.")
 
-    teks = _normalisasi_konten(pilihan[0].get("message", {}).get("content")).strip()
-    if not teks:
-        raise AIError("AI mengembalikan jawaban kosong.")
+def _rapikan_tool_calls(calls: list[dict]) -> list[dict]:
+    """Gateway bisa memberi id duplikat; beri id unik agar round-trip valid."""
+    rapikan = []
+    for i, call in enumerate(calls):
+        fungsi = call.get("function") or {}
+        rapikan.append(
+            {
+                "id": f"call_{i}",
+                "type": "function",
+                "function": {
+                    "name": fungsi.get("name") or "",
+                    "arguments": fungsi.get("arguments") or "{}",
+                },
+            }
+        )
+    return rapikan
 
-    usage = data.get("usage") or {}
-    total = usage.get("total_tokens")
 
-    return {
-        "teks": teks,
-        "model": data.get("model") or config.AI_MODEL,
-        "total_tokens": int(total) if isinstance(total, int) else 0,
-    }
+def _jalankan_tool_calls(calls: list[dict], sudah_dicari: set[str]) -> list[str]:
+    """Eksekusi semua tool yang diminta model, kembalikan catatan sumber.
+
+    Query yang sudah pernah dicari di percakapan ini dilewati, karena model
+    kadang mengulang query yang sama dan itu hanya membakar token.
+    """
+    catatan = []
+    for call in calls:
+        nama = call["function"]["name"]
+        mentah = call["function"]["arguments"]
+
+        try:
+            argumen = json.loads(mentah) if isinstance(mentah, str) else dict(mentah or {})
+        except ValueError:
+            argumen = {}
+
+        if nama == "web_search":
+            query = str(argumen.get("query") or "").strip()
+            kunci = query.lower()
+            if not query:
+                call["_hasil"] = "Query kosong."
+                continue
+            if kunci in sudah_dicari:
+                call["_hasil"] = (
+                    f"Query '{query}' sudah dicari sebelumnya. Pakai hasil itu, "
+                    "jangan mengulang. Kalau kurang, pakai kata kunci berbeda."
+                )
+                continue
+            sudah_dicari.add(kunci)
+
+        call["_hasil"] = websearch.jalankan_tool(nama, argumen)
+
+        if nama == "web_search":
+            query = str(argumen.get("query") or "").strip()
+            if query:
+                catatan.append(f"🔎 {query}")
+        elif nama == "baca_halaman":
+            url = str(argumen.get("url") or "").strip()
+            if url:
+                domain = url.split("//", 1)[-1].split("/", 1)[0]
+                catatan.append(f"📄 {domain}")
+
+    return catatan
+
+
+def tanya(chat_id: int, riwayat: list[dict], admin: bool = False) -> dict:
+    """
+    Kirim percakapan ke endpoint OpenAI-compatible, dengan dukungan web search.
+
+    Kalau model meminta tool, tool dijalankan lalu hasilnya dikirim balik
+    sampai model memberi jawaban final (maksimal MAKS_PUTARAN_TOOL putaran).
+
+    Args:
+        chat_id: dipakai untuk rate limit per chat.
+        riwayat: daftar pesan OpenAI (system + history + user).
+        admin: kalau True, pakai AI_MAX_TOKENS_ADMIN.
+
+    Returns:
+        {"teks": str, "model": str, "total_tokens": int, "sumber": list[str]}
+    """
+    if not config.AI_ENABLED:
+        raise AIError(
+            "Fitur AI belum aktif. Isi AI_API_KEY di file .env lalu restart bot."
+        )
+
+    _batasi_rate(chat_id)
+
+    batas_token = config.AI_MAX_TOKENS_ADMIN if admin else config.AI_MAX_TOKENS
+    tools = daftar_tool()
+
+    pesan = list(riwayat)
+    sumber: list[str] = []
+    sudah_dicari: set[str] = set()
+    total_tokens = 0
+    model_dipakai = config.AI_MODEL
+
+    for putaran in range(MAKS_PUTARAN_TOOL + 1):
+        # Putaran terakhir dikirim tanpa tool, supaya model wajib menjawab
+        putaran_terakhir = putaran >= MAKS_PUTARAN_TOOL
+
+        payload = {
+            "model": config.AI_MODEL,
+            "messages": pesan,
+            "temperature": config.AI_TEMPERATURE,
+            "max_tokens": batas_token,
+        }
+        if tools and not putaran_terakhir:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+        elif tools:
+            # Putaran penutup: tool dimatikan total supaya model tidak menulis
+            # tool call sebagai teks mentah. Instruksinya dikirim sebagai
+            # pesan user (bukan system) agar tidak menimpa system prompt.
+            payload["tools"] = tools
+            payload["tool_choice"] = "none"
+            payload["messages"] = pesan + [
+                {
+                    "role": "user",
+                    "content": (
+                        "Pencarian ditutup. Jawab sekarang HANYA memakai hasil yang "
+                        "sudah didapat di atas, tanpa memanggil tool apa pun. "
+                        "Kalau data kurang, katakan apa adanya dan sebutkan sumber "
+                        "yang sudah ditemukan."
+                    ),
+                }
+            ]
+
+        data = _post(payload)
+        model_dipakai = data.get("model") or model_dipakai
+
+        usage = data.get("usage") or {}
+        token = usage.get("total_tokens")
+        if isinstance(token, int):
+            total_tokens += token
+
+        pilihan = data.get("choices") or []
+        if not pilihan:
+            raise AIError("AI tidak mengembalikan jawaban.")
+
+        message = pilihan[0].get("message") or {}
+        calls_mentah = message.get("tool_calls") or []
+
+        if calls_mentah and not putaran_terakhir:
+            calls = _rapikan_tool_calls(calls_mentah[:MAKS_TOOL_PER_PUTARAN])
+
+            pesan.append(
+                {
+                    "role": "assistant",
+                    "content": _normalisasi_konten(message.get("content")) or "",
+                    "tool_calls": calls,
+                }
+            )
+
+            sumber.extend(_jalankan_tool_calls(calls, sudah_dicari))
+
+            for call in calls:
+                pesan.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "content": call.get("_hasil", ""),
+                    }
+                )
+            continue
+
+        # Tidak ada tool call (atau sudah mentok batas) -> ini jawaban final
+        teks = _normalisasi_konten(message.get("content")).strip()
+
+        if not teks and calls_mentah:
+            teks = (
+                "Aku sudah mencari di web, tapi belum dapat jawaban yang bisa "
+                "disimpulkan. Coba perjelas pertanyaannya."
+            )
+
+        if not teks:
+            raise AIError("AI mengembalikan jawaban kosong.")
+
+        return {
+            "teks": teks,
+            "model": model_dipakai,
+            "total_tokens": total_tokens,
+            "sumber": list(dict.fromkeys(sumber)),
+        }
+
+    raise AIError("AI terlalu banyak mencari. Coba pertanyaan yang lebih spesifik.")
 
 
 def cek_koneksi() -> tuple[bool, str]:
-    """Cek cepat apakah base URL dan key bisa dipakai."""
+    """Cek base URL, key, dan apakah AI_MODEL benar-benar bisa dipakai."""
     try:
         response = requests.get(
             f"{config.AI_BASE_URL}/models",
@@ -152,6 +384,24 @@ def cek_koneksi() -> tuple[bool, str]:
     except requests.exceptions.RequestException as e:
         return False, f"Tidak bisa reach server AI: {e}"
 
-    if response.status_code == 200:
-        return True, "OK"
-    return False, _pesan_error(response.status_code, response.text)
+    if response.status_code != 200:
+        return False, _pesan_error(response.status_code, response.text)
+
+    try:
+        data = _muat_json(response.text)
+    except ValueError:
+        return False, "Daftar model dari server bukan JSON yang valid."
+
+    daftar = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+    if not daftar:
+        return False, "Server tidak mengembalikan model apa pun untuk key ini."
+
+    if config.AI_MODEL not in daftar:
+        tersedia = ", ".join(daftar[:5])
+        return False, (
+            f"Model '{config.AI_MODEL}' tidak ada di gateway.\n"
+            f"Model yang tersedia: {tersedia}.\n"
+            "Perbaiki AI_MODEL di .env."
+        )
+
+    return True, "OK"

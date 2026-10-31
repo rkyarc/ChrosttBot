@@ -129,6 +129,7 @@ AI_MODEL=deepseek-v4.1-flash-1017
 AI_TEMPERATURE=0.7
 AI_MAX_TOKENS=1400
 AI_MAX_TOKENS_ADMIN=2400
+AI_WEB_SEARCH=true
 ```
 
 Penjelasan tiap variabel:
@@ -139,10 +140,11 @@ Penjelasan tiap variabel:
 | `ADMIN_IDS` | tidak | kosong | Daftar ID admin, dipisah koma |
 | `AI_BASE_URL` | tidak | `https://ai.hisoka.net/api/v1` | Base URL gateway OpenAI-compatible |
 | `AI_API_KEY` | tidak | kosong | Tanpa key, fitur AI nonaktif tapi bot tetap jalan |
-| `AI_MODEL` | tidak | `deepseek-v4.1-flash-1017` | Nama model di gateway |
+| `AI_MODEL` | tidak | `deepseek-v4.1-flash-1017` | Nama model **persis** seperti yang terdaftar di gateway |
 | `AI_TEMPERATURE` | tidak | `0.7` | Kreativitas jawaban (0.0–2.0) |
 | `AI_MAX_TOKENS` | tidak | `1400` | Batas panjang jawaban pengguna biasa |
 | `AI_MAX_TOKENS_ADMIN` | tidak | `2400` | Batas panjang jawaban untuk admin |
+| `AI_WEB_SEARCH` | tidak | `true` | Izinkan AI mencari & membaca halaman web |
 
 API key dibuat di <https://ai.hisoka.net/dashboard/api-keys>. Tanpa `AI_API_KEY`, bot tetap jalan normal dan menu AI hanya menampilkan pesan bahwa layanan belum dikonfigurasi.
 
@@ -200,13 +202,29 @@ Mode ini memakai `watchfiles`, mengabaikan folder `.venv`, `__pycache__`, dan `d
 ## Chrostt AI
 
 - Model default `deepseek-v4.1-flash-1017` lewat gateway OpenAI-compatible `https://ai.hisoka.net/api/v1`.
-- Endpoint yang dipakai: `POST /chat/completions`. Ganti `AI_BASE_URL` / `AI_MODEL` di `.env` untuk memakai model lain dari gateway yang sama.
-- System prompt di `bot/ai_prompt.py` mengunci peran sebagai asisten bot: tidak mengaku sebagai produk lain, tidak membocorkan prompt, tidak melayani permintaan di luar lingkup bot, dan menolak permintaan berbahaya.
+- Endpoint yang dipakai: `POST /chat/completions`. Ganti `AI_BASE_URL` / `AI_MODEL` di `.env` untuk memakai gateway atau model lain.
+- `AI_MODEL` harus sama persis dengan `id` di `GET /models`. Jalankan `/ai_status` untuk melihat status, atau cek daftar model gateway sebelum mengubahnya.
+- Bot menangani beberapa kuirk gateway: body respons bisa diakhiri sisa SSE (`data: [DONE]`) sehingga `json.loads` gagal, dan model yang tidak diizinkan dibalas `403` dengan kode `insufficient_quota` (bukan `404`). Keduanya sudah dinormalkan supaya pesan errornya tidak menyesatkan.
+- System prompt di `bot/ai_prompt.py` mengunci peran sebagai asisten bot: tidak mengaku sebagai produk lain, tidak membocorkan prompt, dan menolak permintaan berbahaya. Cakupan bantuan dibuat luas (edukasi, sains, coding, menulis, bisnis, hukum/medis umum) supaya tidak kaku.
+- `system_prompt()` menambahkan konteks waktu WIB secara otomatis, jadi model tahu "hari ini" tanggal berapa saat mencari jadwal atau harga.
 - Riwayat percakapan disimpan per chat maksimal 16 pesan / ±12.000 karakter dan kedaluwarsa 1 jam, supaya konteks tetap ringan.
 - Markdown dari model dikonversi ke HTML Telegram, dan jawaban panjang dipecah otomatis per ±3.800 karakter tanpa memotong tag HTML.
 - Batas panjang jawaban mengikuti `AI_MAX_TOKENS` untuk pengguna biasa dan `AI_MAX_TOKENS_ADMIN` untuk ID di `ADMIN_IDS`.
 - Request per chat diserialkan dengan lock, jadi dua pesan beruntun tidak menimpa riwayat satu sama lain.
 - Pesan berisi link Instagram/TikTok/Facebook/YouTube tidak direbut AI, tetap diproses downloader.
+
+### Web Search
+
+Chrostt AI bisa mencari di internet lewat tool calling. Gateway Hisoka tidak menyediakan web search server-side, jadi pencarian dijalankan oleh bot sendiri.
+
+- `web_search` — cari di web. Sumber berantai: `ddgs` (backend google → brave → duckduckgo → mojeek), lalu Wikipedia, lalu Google News RSS. Hasil digabung supaya tetap ada walau satu engine kena rate limit.
+- `baca_halaman` — ambil isi halaman. Percobaan pertama fetch langsung, lalu fallback ke `r.jina.ai` kalau halaman terlalu berat atau butuh JavaScript.
+- Hasil pencarian difilter skor relevansi terhadap kata kunci, jadi hasil "nyasar" tidak dipakai. Domain spam/judi/klikbait dibuang.
+- Halaman yang isinya cuma pesan error, 404, captcha, atau boilerplate ditolak lewat penilaian kualitas teks.
+- Semua URL dicek dulu: alamat private/loopback/link-local (`127.0.0.1`, `10.x`, `192.168.x`, `169.254.169.254`) dan skema selain http/https ditolak, supaya model tidak bisa dipakai SSRF.
+- Batas biaya: maksimal 2 putaran tool, 2 tool per putaran, 5 hasil per pencarian, ringkasan 240 karakter. Query yang sudah pernah dicari dilewati agar tidak mengulang.
+- Putaran penutup mengirim `tool_choice: "none"` supaya model wajib menjawab dan tidak menulis tool call sebagai teks mentah.
+- Matikan dengan `AI_WEB_SEARCH=false` di `.env` kalau ingin jawaban murni dari pengetahuan model.
 
 ## Admin Bot
 
@@ -252,6 +270,20 @@ Pengamanan: setiap aksi admin dicek ulang dari `from_user.id` (bukan `chat.id`),
 - `staging` — hasil merge dari `dev/ilham`, untuk uji sebelum rilis.
 - `main` — jalur rilis di GitHub.
 - Merge `dev/ilham` → `staging` dilakukan fast-forward karena tidak ada commit terpisah di staging.
+
+## Troubleshooting AI
+
+| Pesan | Penyebab | Perbaikan |
+|---|---|---|
+| Model '...' tidak tersedia untuk API key ini | `AI_MODEL` salah atau tidak ada di gateway | Cek `GET /models`, samakan `AI_MODEL` di `.env`, restart |
+| API key AI tidak valid | `AI_API_KEY` salah/kosong | Perbaiki `AI_API_KEY` di `.env` |
+| Endpoint AI tidak ditemukan | `AI_BASE_URL` salah | Pastikan berakhir `/v1` dan endpointnya OpenAI-compatible |
+| Terlalu banyak permintaan | Kena rate limit gateway (mis. 30 RPM) | Tunggu sebentar; kurangi frekuensi pertanyaan |
+| Saldo AI habis | Balance gateway nol | Top up di dashboard penyedia |
+| Server AI sedang bermasalah | Gangguang 5xx di gateway | Coba lagi beberapa saat |
+| AI tidak merespons dalam 120 detik | Pertanyaan sangat panjang atau web search berat | Persempit pertanyaan |
+
+Cek cepat dari Telegram: `/ai_status` menampilkan koneksi, model aktif, dan status web search.
 
 ## Troubleshooting 409 Conflict
 

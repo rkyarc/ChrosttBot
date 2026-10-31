@@ -51,5 +51,13 @@ AI_TEMPERATURE = float(os.getenv("AI_TEMPERATURE") or "0.7")
 AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS") or "1400")
 AI_MAX_TOKENS_ADMIN = int(os.getenv("AI_MAX_TOKENS_ADMIN") or "2400")
 
+# Web search: model boleh cari & baca halaman sendiri lewat tool calling
+AI_WEB_SEARCH = (os.getenv("AI_WEB_SEARCH") or "true").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+
 if not TELEGRAM_TOKEN:
     raise RuntimeError("TELEGRAM_TOKEN belum diisi. Cek file .env kamu.")
