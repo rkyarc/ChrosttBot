@@ -4,6 +4,7 @@ from bot import tg_bot
 from bot.keyboards import markup_berita_idx, markup_kembali_menu_utama
 from bot.services.idx_news import IDXNewsError, ambil_berita_terbaru, hapus_cache
 from bot.utils import escape_html
+from bot.decorators import aman_handler
 
 
 BERITA_PER_HALAMAN = 3
@@ -43,6 +44,7 @@ def _edit_atau_kirim(chat_id: int, message_id: int, teks: str, markup):
 # ================== HANDLER UTAMA ==================
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "menu_berita")
+@aman_handler
 def menu_berita_idx(call):
     """Tombol menu berita di menu utama."""
     tg_bot.answer_callback_query(call.id)
@@ -70,6 +72,7 @@ def navigasi_halaman(call):
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "berita_idx_refresh")
+@aman_handler
 def refresh_berita_idx(call):
     """Tombol refresh paksa (fetch ulang dari Google News)."""
     tg_bot.answer_callback_query(call.id, "🔄 Memuat ulang dari sumber...")
@@ -80,6 +83,7 @@ def refresh_berita_idx(call):
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "noop")
+@aman_handler
 def tombol_pasif(call):
     """Handler tombol pasif (label halaman)."""
     tg_bot.answer_callback_query(call.id)

@@ -6,6 +6,7 @@ from bot.keyboards import (
 )
 from bot.services.saham import ambil_data_saham, format_kode_emiten, validasi_kode_emiten
 from bot.utils import escape_html, format_angka_rupiah
+from bot.decorators import aman_handler
 
 
 def _ambil_harga(kode_emiten):
@@ -34,6 +35,7 @@ def _teks_harga(kode_emiten, judul, harga_terakhir):
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "menu_saham")
+@aman_handler
 def tampilkan_menu_saham(call):
     tg_bot.answer_callback_query(call.id)
     tg_bot.edit_message_text(
@@ -46,6 +48,7 @@ def tampilkan_menu_saham(call):
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data.startswith("cek_"))
+@aman_handler
 def cek_saham(call):
     tg_bot.answer_callback_query(call.id)
     chat_id = call.message.chat.id
@@ -86,6 +89,7 @@ def cek_saham(call):
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "cari_saham")
+@aman_handler
 def mulai_cari_saham(call):
     tg_bot.answer_callback_query(call.id)
     pesan_instruksi = tg_bot.send_message(

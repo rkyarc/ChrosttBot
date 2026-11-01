@@ -43,3 +43,8 @@ class SessionStore:
 
     def clear(self, chat_id: int) -> None:
         self._data.pop(chat_id, None)
+
+    def items(self) -> list[tuple[int, object]]:
+        """Pasangan (chat_id, nilai) yang masih berlaku, untuk pembersihan."""
+        self._bersihkan(time.time())
+        return [(chat_id, nilai) for chat_id, (_, nilai) in self._data.items()]

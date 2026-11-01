@@ -37,6 +37,10 @@ Chrostt Bot adalah bot Telegram berbasis Python yang menggabungkan beberapa fitu
 - Download video TikTok (tanpa/dengan watermark), foto slideshow, dan audio.
 - Download video Facebook publik dalam kualitas HD atau SD.
 - Download video YouTube (dibatasi 50MB sesuai limit Bot API).
+- **`/play`** — aktifkan mode cari YouTube, lalu kirim judulnya tanpa command.
+- **`/play <judul>`** — cari di YouTube langsung, lalu unduh video MP4 atau audio MP3.
+- **Stiker** — ubah foto/video jadi stiker Telegram, dan stiker jadi PNG/MP4 (butuh ffmpeg).
+- **Hapus pesan** — /del untuk menghapus pesan & media di chat.
 - Semua navigasi memakai inline keyboard dengan tampilan ringkas.
 
 ## Perintah
@@ -46,6 +50,8 @@ Chrostt Bot adalah bot Telegram berbasis Python yang menggabungkan beberapa fitu
 | `/start`, `/menu` | semua | Buka menu utama |
 | `/help`, `/bantuan` | semua | Daftar perintah & cara cepat |
 | `/id` | semua | Lihat ID Telegram sendiri |
+| `/play` | semua | Masuk mode cari YouTube (kirim judul tanpa command) |
+| `/play <judul>` | semua | Cari di YouTube lalu unduh video/audio |
 | `/ai` | semua | Masuk mode asisten AI |
 | `/ai <pertanyaan>` | semua | Tanya sekali tanpa masuk mode |
 | `/ai_off` | semua | Keluar dari mode AI |
@@ -68,7 +74,10 @@ ChrosttBot/
     ├── admin.py             # parsing ADMIN_IDS, cek akses, data pengguna
     ├── ai_prompt.py         # system prompt & aturan Chrostt AI
     ├── keyboards.py         # semua inline keyboard
+    ├── play_mode.py         # siklus mode tunggu judul /play
+    ├── riwayat.py           # penyimpanan riwayat AI (SQLite)
     ├── sessions.py          # cache sesi per chat (TTL)
+    ├── telegram_io.py       # operasi Telegram yang tahan error
     ├── utils.py             # helper format, escape HTML, konversi markdown
     ├── handlers/
     │   ├── __init__.py
@@ -76,21 +85,26 @@ ChrosttBot/
     │   ├── ai.py
     │   ├── background.py
     │   ├── facebook.py
+    │   ├── hapus.py
     │   ├── idx_news.py
     │   ├── instagram.py
     │   ├── menu.py
     │   ├── saham.py
+    │   ├── sticker.py
     │   ├── tiktok.py
     │   └── youtube.py
     └── services/
         ├── __init__.py
         ├── ai.py
+        ├── diagnostik.py
         ├── facebook.py
         ├── idx_news.py
         ├── removebg.py
         ├── saham.py
         ├── saveinta.py
+        ├── sticker.py
         ├── tiktok.py
+        ├── websearch.py
         └── youtube.py
 ```
 
@@ -106,9 +120,19 @@ ChrosttBot/
 - `bot/handlers/*` menangani interaksi Telegram: menu, callback tombol, dan pengiriman media.
 - `dev.py` menjalankan mode auto-reload dan mematikan proses lama sebelum restart.
 
+## Ketahanan operasional
+
+Hal-hal yang biasanya membuat bot terasa "kasar" ditangani terpusat:
+
+- `bot/telegram_io.py` membungkus `send_message`, `edit_message_text`, `delete_message`, dan `answer_callback_query`. Error rutin tidak lagi jadi traceback: `message is not modified` dianggap sukses, pesan yang sudah hilang otomatis dikirim ulang, callback kedaluwarsa diabaikan, dan flood limit hanya dicatat di log.
+- `bot/decorators.py` (`@aman_handler`) menangkap error handler per fitur. Pengguna menerima pesan singkat yang bisa ditindaklanjuti dengan kode handler, traceback lengkap hanya ke log.
+- Semua handler jaringan punya pesan kegagalan spesifik (ffmpeg tidak ada, video terlalu besar, halaman diblokir) alih-alih error mentah.
+- Mode interaktif selalu punya jalan keluar eksplisit: `batal`, perintah lain, tombol keluar, atau TTL. Tidak ada mode yang bisa "nyangkut" tanpa batas.
+
 ## Persyaratan
 
 - Python `>=3.10`
+- ffmpeg di PATH (wajib untuk fitur Stiker)
 - Token bot Telegram dari BotFather
 - Poetry (opsional, bisa juga pakai pip)
 
@@ -198,6 +222,176 @@ Mode ini memakai `watchfiles`, mengabaikan folder `.venv`, `__pycache__`, dan `d
 - Pilih menu saham untuk cek IHSG atau cari kode emiten seperti `BBCA` dan `ASII`.
 - Kirim foto biasa ke chat untuk proses hapus background.
 - Kirim link Instagram, TikTok, Facebook, atau YouTube di chat; bot mendeteksi link otomatis dan link tidak akan dianggap pertanyaan AI.
+- Menu **Stiker**: tekan "Buat Stiker" lalu kirim foto/video, atau "Stiker → PNG/MP4" lalu kirim stiker.
+
+## Stiker
+
+Fitur stiker memakai **ffmpeg** (tidak butuh Pillow). Pastikan `ffmpeg` dan `ffprobe` ada di PATH; kalau tidak, menu Stiker menampilkan pesan bahwa fitur belum siap.
+
+| Arah | Input | Output |
+|---|---|---|
+| Foto → stiker | JPG/PNG/WebP | WebP statis 512×512, maks 512 KB |
+| Video → stiker | MP4/MOV/animation | **WEBM VP9** 3 detik, maks 256 KB |
+| Stiker statis → gambar | WebP | PNG frame pertama |
+| Stiker video → gambar | WEBM VP9 | PNG frame pertama |
+| Stiker bergerak → video | WEBM / WebP animasi | MP4 H.264 |
+
+Detail teknis:
+
+- **Video sticker Telegram wajib `.WEBM` codec VP9**, bukan animated WebP. Animated WebP ditolak `sendSticker`, jadi jalur video memakai `libvpx-vp9`.
+- Batas ukuran berbeda: stiker statis 512 KB, stiker video hanya **256 KB** (batas Telegram). Video dikompres bertahap (bitrate 420k → 160k, fps 30 → 15) sampai lolos.
+- Stiker Telegram ada 3 jenis dan ekstensinya beda: `.webp` (statis), `.webm` (video), `.tgs` (animasi vektor). `.tgs` berbasis Lottie-gzip dan **tidak bisa** diproses ffmpeg, jadi ditolak dengan pesan jelas.
+- Skala memakai `force_original_aspect_ratio=decrease`, jadi rasio asli tidak dipotong dan sisi terpanjang maksimal 512 px.
+- Stiker Telegram selalu tanpa audio, jadi trek suara dibuang (`-an`).
+- Video dipotong 3 detik pertama; untuk stiker dari video yang lebih panjang, potongan bisa diatur lewat parameter `mulai` di service.
+- File sementara disimpan di folder `chrostt-stiker-*` dan dihapus setelah selesai, termasuk kalau terjadi error.
+
+## YouTube
+
+YouTube sejak 2024 **tidak lagi menyediakan format progresif** (video+audio menyatu) untuk sebagian besar video. Semua format video bersifat video-only, jadi downloader ini mengunduh video dan audio terpisah lalu menggabungkannya dengan ffmpeg.
+
+| Fitur | Cara |
+|---|---|
+| Unduh dari link | Kirim link YouTube (watch, shorts, live replay, youtu.be) |
+| Mode cari | `/play` — bot menunggu, kirim judul tanpa command |
+| Cari langsung | `/play judul lagu` — 20 hasil, 5 per halaman, user pilih nomor |
+| Pilih format | Setelah memilih video: **🎬 Video MP4** atau **🎵 Audio MP3** |
+
+`/play` mengambil **20 hasil** dari YouTube lalu menampilkannya **5 per halaman** (4 halaman) lengkap dengan judul, channel, durasi, dan jumlah tayangan.
+
+### Mode tunggu query
+
+`/play` tanpa argumen mengirim prompt dengan **ForceReply**: kolom input user otomatis berada dalam mode *balas* ke pesan bot (sama seperti menekan "Reply" lalu mengetik). User tinggal mengirim judulnya, dan bot langsung mencari **tanpa mengetik `/play` lagi**. Mode aktif 10 menit sejak aktivitas terakhir, jadi beberapa judul bisa dikirim berturut-turut.
+
+- Di grup, prompt membalas pesan `/play` user dan ForceReply-nya `selective`, jadi hanya user yang meminta yang kolom inputnya terbuka.
+- `/play <judul>` tetap bisa dipakai kapan saja untuk mencari langsung; mode tunggu ikut ditutup.
+- Kata `batal` / `cancel` menghentikan mode, begitu juga perintah lain (`/start`, `/ai`, …), pengiriman media atau link.
+- **Prompt ForceReply dihapus otomatis** begitu mode berakhir (judul diterima, dibatalkan, perintah lain, atau tombol apa pun ditekan). Ini yang membuat kolom balas tidak muncul lagi saat chat ditutup lalu dibuka kembali — ForceReply menempel pada pesan prompt, jadi selama pesan itu ada Telegram terus menampilkan status balas.
+- ID prompt juga dicatat di SQLite. Kalau bot restart saat mode masih aktif, prompt lama dibersihkan saat startup (`play_mode.bersihkan_sisa()`) sehingga tidak menggantung di chat.
+- Tombol **🔍 Judul Lain** di daftar hasil membuka prompt baru tanpa mengetik `/play`.
+- Mode AI tidak merebut pesan selama mode `/play` aktif, dan sebaliknya `/play` menang di chat yang sama.
+
+
+- Setiap hasil punya tombol sendiri dengan **indeks global** (`yt_pilih_0` … `yt_pilih_19`), jadi memilih dari halaman mana pun tetap mengunduh video yang benar.
+- Navigasi: `« Prev` / `x/4` / `Next »`. Tombol Prev disembunyikan di halaman 1, Next disembunyikan di halaman terakhir.
+- Nomor tombol melanjutkan penomoran global (halaman 2 mulai dari `6.`), sesuai teks di atasnya.
+- Tombol `x/4` bersifat pasif; menekannya hanya menampilkan info jumlah hasil.
+- Halaman di luar rentang otomatis diklem ke halaman 1 atau terakhir.
+- Kalau hasil kurang dari 5, navigasi halaman tidak ditampilkan.
+
+Contoh tampilan:
+
+```
+HASIL UNTUK "me at the zoo"
+
+1. Me at the zoo
+     jawed · 0:19 · 447.3jt
+
+2. "Me at the Zoo" Is Now in a Museum
+     Real Vintage Dolls House · 29:17 · 20rb
+```
+
+Detail teknis:
+
+- Format: `bestvideo[filesize<50M][ext=mp4]+bestaudio[ext=m4a]`, lalu `merge_output_format=mp4`. Ada 3 tingkat fallback kalau batas ukuran tidak bisa diprediksi.
+- Audio diekstrak ke MP3 128 kbps lewat post-processor `FFmpegExtractAudio`.
+- **Durasi dicek sebelum unduh** (`skip_download=True`). Video >1 jam ditolak dalam ~2 detik, bukan setelah mengunduh ratusan MB.
+- Batas 50MB (limit Bot API) dijaga dua lapis: `max_filesize` di yt-dlp dan pengecekan ulang setelah unduhan.
+- Live stream berjalan ditolak lewat `match_filter=!is_live`.
+- Folder sementara dihapus di blok `finally`, termasuk saat download atau upload gagal.
+- Error yt-dlp diterjemahkan ke bahasa manusia: video privat, tidak tersedia, butuh login umur, diblokir wilayah, timeout, dan ffmpeg hilang.
+
+Contoh:
+
+```
+/play
+lofi hip hop
+tutorial python
+batal
+
+/play me at the zoo
+```
+
+## Hapus Pesan (/del)
+
+Fitur untuk membersihkan chat: menghapus pesan teks, foto, video, stiker, atau dokumen.
+
+| Perintah | Fungsi |
+|---|---|
+| `/del` | Hapus pesan perintah itu sendiri |
+| `/del` (sebagai reply) | Hapus pesan/media yang dibalas + pesan perintah |
+| `/del 5` | Hapus 5 pesan terakhir termasuk perintah |
+| `/del all` | Hapus sampai 100 pesan terakhir |
+
+Detail teknis:
+
+- Memakai `deleteMessages` (bulk, maks 100 ID per request) dengan fallback `deleteMessage` per pesan kalau bulk gagal sebagian. `deleteMessages` tidak melempar exception saat ada pesan yang hilang, ia hanya mengembalikan `False`, jadi hasilnya dicek eksplisit.
+- Rentang ID dihitung dari `message_id` perintah ke belakang (akhir - jumlah + 1). Pesan yang tidak ada dilewati otomatis.
+- Bila semua berhasil, bot tidak mengirim laporan apa pun agar chat tetap bersih. Laporan hanya muncul kalau ada yang gagal.
+- Error Telegram diterjemahkan: pesan tidak ditemukan, pesan lebih dari 48 jam, bot kurang izin, chat tidak ditemukan.
+- Tombol **🗑️ Hapus Pesan** di menu utama menampilkan panduan + batasan.
+
+Batasan Telegram yang tidak bisa dilanggar bot:
+
+- Pesan hanya bisa dihapus dalam **48 jam** sejak dikirim.
+- Di grup, bot harus **admin** dengan izin *Delete messages*.
+- Pesan layanan sistem (pin, join, ganti foto grup) tidak bisa dihapus.
+
+## Logging Aktivitas
+
+Bot mencetak setiap command, pesan teks, dan penekanan tombol ke console. Diaktifkan lewat `.env`:
+
+```env
+LOG_USER_MESSAGES=true
+LOG_USER_MEDIA=false
+```
+
+| Variabel | Default | Fungsi |
+|---|---|---|
+| `LOG_USER_MESSAGES` | `true` | Cetak command, teks, dan callback ke console |
+| `LOG_USER_MEDIA` | `false` | Ikut cetak pesan berisi media (foto/video/stiker) |
+
+Contoh output:
+
+```
+[20:04:02] CMD /play      /play lofi hip hop
+           └─ id=987654321 | @ilham | Ilham Pratama | chat=private:12345
+[20:04:05] CB             yt_pilih_3
+           └─ id=987654321 | @ilham | Ilham Pratama
+[20:04:09] MSG            halo bot
+           └─ id=987654321 | @ilham | Ilham Pratama | chat=private:12345
+```
+
+Detail teknis:
+
+- Dipasang sebagai **middleware** telebot (`bot/user_log.py`), bukan handler, jadi tidak ikut rantai handler dan tidak bisa "menelan" update.
+- Middleware memakai `update_sensitive=True` dengan `pre_process_message` / `pre_process_callback_query`, karena dict `data` tidak membawa `update_type`.
+- Isi pesan dipotong 120 karakter dan newline diubah jadi `⏎` agar console tidak banjir.
+- Logging dibungkus `try/except`; kegagalan logging tidak pernah menjatuhkan handler.
+- Media hanya dicetak bila `LOG_USER_MEDIA=true`, supaya tidak spam.
+- `post_process_message` / `post_process_callback_query` juga diimplementasikan karena telebot mewajibkannya saat `update_sensitive=True` (kalau tidak, muncul ERROR "does not have post_process_<type>").
+
+## Proteksi Error Handler
+
+Setiap handler dibungkus decorator `@aman_handler` (`bot/decorators.py`) supaya kegagalan tidak membuat user menunggu tanpa balasan.
+
+```python
+@tg_bot.message_handler(commands=["start"])
+@aman_handler
+def tampilkan_menu(message):
+    ...
+```
+
+**Aturan urutan penting:** `@aman_handler` harus berada **di bawah** decorator telebot (paling dekat `def`). Decorator Python dieksekusi bottom-up, jadi `@aman_handler` membungkus fungsi lebih dulu, baru telebot mendaftarkan hasilnya. Kalau dibalik, telebot mendaftarkan fungsi asli dan guard tidak pernah aktif.
+
+Perilaku saat handler gagal:
+
+- Traceback lengkap masuk log (`chrosttbot.handler`).
+- User menerima pesan singkat "Terjadi kesalahan" berisi nama handler, tanpa detail internal.
+- Untuk callback, `answerCallbackQuery` dipanggil dulu agar spinner tidak menggantung.
+- Kalau chat tidak bisa dihubungi, cukup dicatat di log tanpa melempar error baru.
+
+Handler yang sudah punya `try/except` sendiri (TikTok, YouTube, stiker, hapus, AI, Instagram, Facebook, background) **tidak** dibungkus guard agar pesan error spesifiknya tidak tertimpa. Ada test `verify_try_own.py` yang memaksa API gagal untuk memastikan error di handler-handler itu benar-benar tertangkap.
 
 ## Chrostt AI
 
@@ -213,7 +407,60 @@ Mode ini memakai `watchfiles`, mengabaikan folder `.venv`, `__pycache__`, dan `d
 - Request per chat diserialkan dengan lock, jadi dua pesan beruntun tidak menimpa riwayat satu sama lain.
 - Pesan berisi link Instagram/TikTok/Facebook/YouTube tidak direbut AI, tetap diproses downloader.
 
-### Web Search
+### Akses admin vs pengguna biasa
+
+Admin (`ADMIN_IDS`) mendapat asisten yang lebih dalam, tanpa membuka jalur eksekusi berbahaya:
+
+| Aspek | Pengguna | Admin |
+|---|---|---|
+| Batas token | `AI_MAX_TOKENS` | `AI_MAX_TOKENS_ADMIN` |
+| Putaran tool | 2 | 4 |
+| Tool per putaran | 2 | 3 |
+| Hasil web per pencarian | 5 | 8 |
+| Isi halaman dibaca | 2.500 karakter | 6.000 karakter |
+| Tool `status_bot` | tidak ada | ada (read-only) |
+| System prompt | dasar | dasar + `Mode admin` |
+| `/ai_status` | ringkas | + batas admin & daftar tool |
+
+`status_bot` hanya membaca: uptime proses, jumlah pengguna agregat, model AI, status web search, ketersediaan ffmpeg, versi Python, folder kerja, dan sisa disk. Tidak ada nilai kredensial di outputnya.
+
+Batas yang **tidak** dibuka untuk admin — AI tetap tidak bisa:
+- Menjalankan perintah shell, menghapus/menulis file, atau mengeksekusi kode di server.
+- Mengubah konfigurasi, me-restart bot, atau mengirim broadcast.
+- Menampilkan isi `AI_API_KEY`, `TELEGRAM_TOKEN`, atau kredensial lain.
+- Membocorkan system prompt atau data pribadi pengguna lain.
+
+Pemisahan konteks: sesi AI ditandai `akses` (`admin`/`user`). Kalau peran pengirim berubah di chat yang sama, riwayat otomatis dikosongkan supaya detail teknis milik admin tidak terbawa ke pengguna biasa — relevan terutama di grup. Model juga tidak bisa memaksa memakai `status_bot` saat melayani non-admin: permintaan tool seperti itu ditolak dengan pesan "hanya tersedia untuk admin".
+
+
+### Riwayat permanen (SQLite)
+
+Riwayat obrolan AI disimpan per chat ke **SQLite** (`data/riwayat-ai.db`), jadi percakapan tetap tersambung setelah bot restart.
+
+Kenapa SQLite: sudah termasuk pustaka standar Python, tanpa server, tanpa dependency baru, dan tetap aman untuk tulisan paralel lewat mode WAL. Satu file saja, mudah dibackup.
+
+- Tabel `chat` menyimpan metadata (ID, nama, username, tipe, tingkat akses, waktu terakhir), tabel `pesan` menyimpan isi percakapan.
+- Database dibuat otomatis saat pertama kali dipakai; folder `data/` juga otomatis.
+- Ditulis setiap kali ada pertanyaan/jawaban, jadi tidak ada data yang hilang kalau bot mati mendadak.
+- Batas arsip: 300 pesan per chat dan maksimal 1.000 chat. Chat paling lama dibuang otomatis saat penuh.
+- Yang dikirim ke model tetap dipotong ke 16 pesan / ±12.000 karakter (`MAKS_PESAN_RIWAYAT`), jadi arsip panjang tidak membengkakkan biaya token.
+- Riwayat ditandai `akses` (`admin`/`user`). Kalau peran pengirim berubah di chat yang sama, riwayat lama dihapus supaya konteks admin tidak bocor ke pengguna biasa.
+- Tombol **🧹 Reset Obrolan** di menu AI menghapus riwayat chat itu dari memori sekaligus dari database.
+- `RIWAYAT_AKTIF=false` membuat database berjalan in-memory: riwayat tetap bekerja selama bot hidup, tetapi tidak menyentuh disk.
+- `RIWAYAT_DB` bisa diubah untuk memindahkan lokasi file.
+- `data/` dan berkas `*.db-wal` / `*.db-shm` sudah masuk `.gitignore`.
+
+### Hapus riwayat lewat panel admin
+
+Panel admin punya menu **🗂️ Riwayat AI** untuk melihat dan menghapus arsip:
+
+- Ringkasan: jumlah chat, total pesan, ukuran database, dan lokasi file.
+- Daftar per halaman (5 chat/halaman) berisi nama, ID chat, tipe, tingkat akses, jumlah pesan, dan waktu terakhir. Isi percakapan **tidak** ditampilkan.
+- Tombol 🗑️ per chat membuka konfirmasi sebelum menghapus.
+- Tombol 🧨 **Hapus Semua** juga meminta konfirmasi dan menyebut jumlah chat/pesan yang akan hilang.
+- Semua tombol ini memanggil `_admin_call()`, jadi non-admin hanya mendapat alert "⛔ Hanya untuk admin." dan tidak ada data yang berubah.
+- Setelah dihapus, sesi AI di memori untuk chat itu ikut dibersihkan agar riwayat tidak "hidup lagi".
+
 
 Chrostt AI bisa mencari di internet lewat tool calling. Gateway Hisoka tidak menyediakan web search server-side, jadi pencarian dijalankan oleh bot sendiri.
 
@@ -222,7 +469,7 @@ Chrostt AI bisa mencari di internet lewat tool calling. Gateway Hisoka tidak men
 - Hasil pencarian difilter skor relevansi terhadap kata kunci, jadi hasil "nyasar" tidak dipakai. Domain spam/judi/klikbait dibuang.
 - Halaman yang isinya cuma pesan error, 404, captcha, atau boilerplate ditolak lewat penilaian kualitas teks.
 - Semua URL dicek dulu: alamat private/loopback/link-local (`127.0.0.1`, `10.x`, `192.168.x`, `169.254.169.254`) dan skema selain http/https ditolak, supaya model tidak bisa dipakai SSRF.
-- Batas biaya: maksimal 2 putaran tool, 2 tool per putaran, 5 hasil per pencarian, ringkasan 240 karakter. Query yang sudah pernah dicari dilewati agar tidak mengulang.
+- Batas biaya: maksimal 2 putaran tool, 2 tool per putaran, 5 hasil per pencarian, ringkasan 240 karakter. Query yang sudah pernah dicari dilewati agar tidak mengulang. Admin mendapat batas lebih longgar (4 putaran, 3 tool, 8 hasil, isi halaman 6.000 karakter).
 - Putaran penutup mengirim `tool_choice: "none"` supaya model wajib menjawab dan tidak menulis tool call sebagai teks mentah.
 - Matikan dengan `AI_WEB_SEARCH=false` di `.env` kalau ingin jawaban murni dari pengetahuan model.
 
