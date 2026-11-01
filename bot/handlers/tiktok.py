@@ -8,6 +8,7 @@ from bot.keyboards import markup_download_tiktok, markup_kembali_menu_utama
 from bot.services.tiktok import TikTokScraperError, extract_tiktok, unduh_media
 from bot.sessions import SessionStore
 from bot.utils import escape_html
+from bot.decorators import aman_handler
 
 
 # Cache hasil ekstraksi per chat, supaya tombol callback bisa mengambil datanya
@@ -23,6 +24,7 @@ TIKTOK_URL_PATTERN = re.compile(
 
 
 @tg_bot.message_handler(func=lambda m: bool(TIKTOK_URL_PATTERN.search(m.text or "")))
+@aman_handler
 def proses_link_tiktok(message):
     """Otomatis menangkap pesan yang berisi link TikTok."""
     chat_id = message.chat.id
@@ -141,12 +143,43 @@ def aksi_download_tiktok(call):
         else:
             tg_bot.answer_callback_query(call.id)
 
+    except TikTokScraperError as e:
+        tg_bot.send_message(
+            chat_id,
+            "❌ <b>Gagal mengunduh media</b>\n\n"
+            f"{escape_html(str(e))}\n\n"
+            "<i>Coba lagi beberapa saat, atau buka link di bawah.</i>",
+            parse_mode="HTML",
+            reply_markup=_markup_tautan(call.data, content, music),
+        )
     except Exception as e:
         tg_bot.send_message(
             chat_id,
             f"❌ <b>Gagal mengirim media</b>\n\n<code>{escape_html(str(e)[:200])}</code>",
             parse_mode="HTML",
         )
+
+
+def _markup_tautan(aksi: str, content: dict, music: dict):
+    """Tombol tautan langsung kalau unduhan lewat bot gagal."""
+    if aksi == "tiktok_nowm":
+        url = content.get("video_no_wm")
+    elif aksi == "tiktok_wm":
+        url = content.get("video_wm")
+    elif aksi == "tiktok_music":
+        url = music.get("url")
+    else:
+        url = None
+
+    if not url:
+        return markup_kembali_menu_utama()
+
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        types.InlineKeyboardButton("🔗 Buka Media di Browser", url=url),
+        types.InlineKeyboardButton("← Menu Utama", callback_data="menu_utama"),
+    )
+    return markup
 
 
 # ================= FUNGSI PENGIRIMAN MEDIA =================

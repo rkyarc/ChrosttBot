@@ -2,9 +2,12 @@ import os
 import re
 import sys
 import json
+import logging
 import html as _html
 import urllib.parse
 import requests
+
+log = logging.getLogger("chrosttbot.saveinta")
 
 
 class SaveInta:
@@ -230,15 +233,15 @@ class SaveInta:
         is_obfuscated = isinstance(data_field, str) and data_field.lstrip().startswith("var _0x")
 
         if is_obfuscated:
-            print("[*] Data ter-obfuscate, decrypting ...")
+            log.debug("[*] Data ter-obfuscate, decrypting ...")
             html_text = _html.unescape(self.decode_saveinta(data_field))
-            print(f"[+] Decrypt sukses, panjang: {len(html_text)} karakter")
+            log.debug(f"[+] Decrypt sukses, panjang: {len(html_text)} karakter")
         else:
-            print("[*] Data plaintext, parsing langsung ...")
+            log.debug("[*] Data plaintext, parsing langsung ...")
             html_text = _html.unescape(data_field if isinstance(data_field, str) else "")
 
         cards = self._split_cards(html_text)
-        print(f"[+] Ditemukan {len(cards)} kartu media")
+        log.debug(f"[+] Ditemukan {len(cards)} kartu media")
 
         if cards:
             for card in cards:
@@ -251,9 +254,9 @@ class SaveInta:
                     items.append(("FOTO", url))
                 elif kind is None:
                     # Debug log kalau kartu gagal di-parse
-                    print(f"[!] Gagal parse kartu. Potongan isi kartu: {card[:150].strip()}...")
+                    log.debug(f"[!] Gagal parse kartu. Potongan isi kartu: {card[:150].strip()}...")
                 elif kind == "AUDIO":
-                    print(f"[!] Skip kartu audio-only. Potongan isi kartu: {card[:150].strip()}...")
+                    log.debug(f"[!] Skip kartu audio-only. Potongan isi kartu: {card[:150].strip()}...")
         else:
             # fallback terakhir: sapu semua URL (jarang kepake)
             for u in re.findall(r"""https?://[^\s"'<>\\]+""", html_text):
@@ -298,7 +301,7 @@ class SaveInta:
         with open(path, "wb") as f:
             for chunk in r.iter_content(1 << 16):
                 f.write(chunk)
-        print(f"    (content-type: {ctype or 'unknown'} -> {ext})")
+        log.debug(f"    (content-type: {ctype or 'unknown'} -> {ext})")
         return path
 
     @staticmethod
@@ -321,29 +324,28 @@ def main():
     link = sys.argv[1] if len(sys.argv) > 1 else input("Link Instagram: ").strip()
     bot = SaveInta()
 
-    print("[*] scraping k_exp & k_token dari saveinta.com/en ...")
+    log.debug("[*] scraping k_exp & k_token dari saveinta.com/en ...")
     bot.refresh_tokens()
-    print(f"[+] k_exp   : {bot.k_exp}")
-    print(f"[+] k_token : {bot.k_token[:20]}...")
+    log.debug("[+] k_exp & k_token ditemukan (isi disembunyikan)")
 
-    print("[*] request ajaxSearch ...")
+    log.debug("[*] request ajaxSearch ...")
     resp = bot.search(link)
 
     media = bot.parse_media(resp)
     if not media["videos"] and not media["images"]:
-        print("[!] Media tidak ketemu. Raw response buat debug:")
-        print(json.dumps(resp, indent=2)[:3000])
+        log.debug("[!] Media tidak ketemu. Raw response buat debug:")
+        log.debug(json.dumps(resp, indent=2)[:3000])
         return
 
     all_media = media.get("items") or [("VIDEO", u) for u in media["videos"]] + [("FOTO", u) for u in media["images"]]
     for i, (t, u) in enumerate(all_media, 1):
-        print(f"[{i}] {t}: {u[:120]}")
+        log.debug(f"[{i}] {t}: {u[:120]}")
 
     for i, (t, u) in enumerate(all_media, 1):
-        print(f"[*] download {t} #{i} ...")
+        log.debug(f"[*] download {t} #{i} ...")
         path = bot.save_file(u, name=f"{i:02d}_{t.lower()}",
                              default_ext=".mp4" if t == "VIDEO" else ".jpg")
-        print(f"[+] tersimpan: {path}")
+        log.debug(f"[+] tersimpan: {path}")
 
 
 if __name__ == "__main__":

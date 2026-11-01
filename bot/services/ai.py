@@ -4,7 +4,7 @@ import time
 import requests
 
 import config
-from bot.services import websearch
+from bot.services import diagnostik, websearch
 
 
 class AIError(Exception):
@@ -17,12 +17,28 @@ MIN_INTERVAL = 1.5  # detik antar request per chat
 # Batas putaran tool-calling, supaya model tidak bisa berputar tanpa henti.
 # 2 putaran tool + 1 putaran jawaban final = maksimal 3 request ke model.
 MAKS_PUTARAN_TOOL = 2
+# Admin boleh riset lebih dalam, tapi tetap dibatasi supaya biaya & waktu wajar.
+MAKS_PUTARAN_TOOL_ADMIN = 4
 
 # Batas jumlah tool yang dieksekusi per putaran (model kadang minta banyak sekaligus)
 MAKS_TOOL_PER_PUTARAN = 2
+MAKS_TOOL_PER_PUTARAN_ADMIN = 3
+
+# Kedalaman riset per tool
+HASIL_WEB = 5
+HASIL_WEB_ADMIN = 8
+MAKS_KARAKTER_HALAMAN = 2500
+MAKS_KARAKTER_HALAMAN_ADMIN = 6000
+
+# Tool tambahan yang hanya diberikan ke admin. Semuanya read-only.
+TOOL_ADMIN = (diagnostik.SKEMA_STATUS_BOT,)
+
+# Nama tool admin, dipakai untuk menampilkan batas akses di /ai_status
+TOOL_ADMIN_NAMA = tuple(t["function"]["name"] for t in TOOL_ADMIN)
 
 
 def tersedia() -> bool:
+
     return config.AI_ENABLED
 
 
@@ -35,10 +51,14 @@ def web_aktif() -> bool:
     return config.AI_ENABLED and config.AI_WEB_SEARCH
 
 
-def daftar_tool() -> list[dict]:
-    if not web_aktif():
-        return []
-    return [websearch.SKEMA_WEB_SEARCH, websearch.SKEMA_BACA_HALAMAN]
+def daftar_tool(admin: bool = False) -> list[dict]:
+    """Tool yang boleh dipakai model. Admin mendapat tool diagnostik tambahan."""
+    tools = []
+    if web_aktif():
+        tools += [websearch.SKEMA_WEB_SEARCH, websearch.SKEMA_BACA_HALAMAN]
+    if admin:
+        tools += list(TOOL_ADMIN)
+    return tools
 
 
 def _batasi_rate(chat_id: int) -> None:
@@ -206,16 +226,32 @@ def _rapikan_tool_calls(calls: list[dict]) -> list[dict]:
     return rapikan
 
 
-def _jalankan_tool_calls(calls: list[dict], sudah_dicari: set[str]) -> list[str]:
+def _jalankan_tool_calls(
+    calls: list[dict],
+    sudah_dicari: set[str],
+    admin: bool = False,
+) -> list[str]:
     """Eksekusi semua tool yang diminta model, kembalikan catatan sumber.
 
     Query yang sudah pernah dicari di percakapan ini dilewati, karena model
     kadang mengulang query yang sama dan itu hanya membakar token.
     """
+    jumlah_hasil = HASIL_WEB_ADMIN if admin else HASIL_WEB
+    maks_halaman = (
+        MAKS_KARAKTER_HALAMAN_ADMIN if admin else MAKS_KARAKTER_HALAMAN
+    )
+
     catatan = []
     for call in calls:
         nama = call["function"]["name"]
         mentah = call["function"]["arguments"]
+
+        # Tool admin ditolak untuk pengguna biasa, walau model tetap memintanya.
+        if nama in TOOL_ADMIN_NAMA and not admin:
+            call["_hasil"] = (
+                f"Tool '{nama}' hanya tersedia untuk admin. Jawab tanpa tool ini."
+            )
+            continue
 
         try:
             argumen = json.loads(mentah) if isinstance(mentah, str) else dict(mentah or {})
@@ -236,7 +272,13 @@ def _jalankan_tool_calls(calls: list[dict], sudah_dicari: set[str]) -> list[str]
                 continue
             sudah_dicari.add(kunci)
 
-        call["_hasil"] = websearch.jalankan_tool(nama, argumen)
+        if nama in ("web_search", "baca_halaman"):
+            call["_hasil"] = websearch.jalankan_tool(
+                nama, argumen, jumlah=jumlah_hasil, maks_karakter=maks_halaman
+            )
+        else:
+            # Termasuk tool admin (read-only) dan nama tak dikenal
+            call["_hasil"] = diagnostik.jalankan_tool(nama, argumen)
 
         if nama == "web_search":
             query = str(argumen.get("query") or "").strip()
@@ -247,6 +289,8 @@ def _jalankan_tool_calls(calls: list[dict], sudah_dicari: set[str]) -> list[str]
             if url:
                 domain = url.split("//", 1)[-1].split("/", 1)[0]
                 catatan.append(f"📄 {domain}")
+        elif nama == "status_bot":
+            catatan.append("🩺 status bot")
 
     return catatan
 
@@ -256,12 +300,14 @@ def tanya(chat_id: int, riwayat: list[dict], admin: bool = False) -> dict:
     Kirim percakapan ke endpoint OpenAI-compatible, dengan dukungan web search.
 
     Kalau model meminta tool, tool dijalankan lalu hasilnya dikirim balik
-    sampai model memberi jawaban final (maksimal MAKS_PUTARAN_TOOL putaran).
+    sampai model memberi jawaban final (maksimal MAKS_PUTARAN_TOOL putaran;
+    admin mendapat MAKS_PUTARAN_TOOL_ADMIN).
 
     Args:
         chat_id: dipakai untuk rate limit per chat.
         riwayat: daftar pesan OpenAI (system + history + user).
-        admin: kalau True, pakai AI_MAX_TOKENS_ADMIN.
+        admin: kalau True, batas token, jumlah putaran, kedalaman riset, dan
+            tool diagnostik read-only ikut dinaikkan.
 
     Returns:
         {"teks": str, "model": str, "total_tokens": int, "sumber": list[str]}
@@ -274,7 +320,11 @@ def tanya(chat_id: int, riwayat: list[dict], admin: bool = False) -> dict:
     _batasi_rate(chat_id)
 
     batas_token = config.AI_MAX_TOKENS_ADMIN if admin else config.AI_MAX_TOKENS
-    tools = daftar_tool()
+    tools = daftar_tool(admin)
+    maks_putaran = MAKS_PUTARAN_TOOL_ADMIN if admin else MAKS_PUTARAN_TOOL
+    maks_tool = (
+        MAKS_TOOL_PER_PUTARAN_ADMIN if admin else MAKS_TOOL_PER_PUTARAN
+    )
 
     pesan = list(riwayat)
     sumber: list[str] = []
@@ -282,9 +332,9 @@ def tanya(chat_id: int, riwayat: list[dict], admin: bool = False) -> dict:
     total_tokens = 0
     model_dipakai = config.AI_MODEL
 
-    for putaran in range(MAKS_PUTARAN_TOOL + 1):
+    for putaran in range(maks_putaran + 1):
         # Putaran terakhir dikirim tanpa tool, supaya model wajib menjawab
-        putaran_terakhir = putaran >= MAKS_PUTARAN_TOOL
+        putaran_terakhir = putaran >= maks_putaran
 
         payload = {
             "model": config.AI_MODEL,
@@ -329,7 +379,7 @@ def tanya(chat_id: int, riwayat: list[dict], admin: bool = False) -> dict:
         calls_mentah = message.get("tool_calls") or []
 
         if calls_mentah and not putaran_terakhir:
-            calls = _rapikan_tool_calls(calls_mentah[:MAKS_TOOL_PER_PUTARAN])
+            calls = _rapikan_tool_calls(calls_mentah[:maks_tool])
 
             pesan.append(
                 {
@@ -339,7 +389,7 @@ def tanya(chat_id: int, riwayat: list[dict], admin: bool = False) -> dict:
                 }
             )
 
-            sumber.extend(_jalankan_tool_calls(calls, sudah_dicari))
+            sumber.extend(_jalankan_tool_calls(calls, sudah_dicari, admin))
 
             for call in calls:
                 pesan.append(

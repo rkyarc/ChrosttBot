@@ -1,4 +1,4 @@
-﻿"""Web search dan pembacaan halaman untuk Chrostt AI.
+"""Web search dan pembacaan halaman untuk Chrostt AI.
 
 Strategi:
 1. Coba beberapa backend lewat `ddgs` (google -> brave -> duckduckgo -> mojeek).
@@ -597,14 +597,23 @@ SKEMA_BACA_HALAMAN = {
 }
 
 
-def jalankan_tool(nama: str, argumen: dict) -> str:
-    """Jalankan tool yang diminta model, kembalikan teks untuk dikirim balik."""
+def jalankan_tool(
+    nama: str,
+    argumen: dict,
+    jumlah: int = 5,
+    maks_karakter: int = 2500,
+) -> str:
+    """Jalankan tool yang diminta model, kembalikan teks untuk dikirim balik.
+
+    ``jumlah`` dan ``maks_karakter`` bisa diperbesar untuk admin yang butuh
+    riset lebih dalam. Keduanya tetap punya batas atas di pemanggil.
+    """
     if nama == "web_search":
         query = str(argumen.get("query") or "").strip()
         if not query:
             return "Query kosong."
 
-        hasil = cari(query, jumlah=5)
+        hasil = cari(query, jumlah=jumlah)
         if not hasil:
             return (
                 f"Tidak ada hasil relevan untuk '{query}'. "
@@ -622,7 +631,7 @@ def jalankan_tool(nama: str, argumen: dict) -> str:
     if nama == "baca_halaman":
         url = str(argumen.get("url") or "").strip()
         try:
-            teks = baca_halaman(url)
+            teks = baca_halaman(url, maks_karakter=maks_karakter)
         except WebSearchError as e:
             return f"Gagal membaca halaman: {e}"
         return f"Isi halaman {url}:\n\n{teks}"

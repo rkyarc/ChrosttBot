@@ -4,8 +4,9 @@ import time
 
 import config
 import bot.handlers  # noqa: F401  (mendaftarkan semua handler)
-from bot import tg_bot
+from bot import play_mode, tg_bot
 from bot.admin import pasang_listener
+from bot import user_log
 from telebot.types import BotCommand, BotCommandScopeChat
 
 
@@ -39,9 +40,11 @@ log = logging.getLogger("chrosttbot")
 
 PERINTAH_UMUM = [
     BotCommand("start", "Buka menu utama"),
+    BotCommand("play", "Cari YouTube (kirim judul setelahnya)"),
     BotCommand("ai", "Tanya Chrostt AI"),
     BotCommand("ai_off", "Keluar dari mode AI"),
     BotCommand("ai_status", "Cek status AI"),
+    BotCommand("del", "Hapus pesan/media di chat"),
     BotCommand("id", "Lihat ID Telegram kamu"),
     BotCommand("help", "Bantuan & daftar perintah"),
 ]
@@ -73,11 +76,26 @@ def run_bot():
 
     daftarkan_perintah()
     pasang_listener()
+    user_log.pasang(tg_bot)
 
-    log.info("Chrostt Bot siap (AI: %s, model: %s, admin: %s)",
+    # Prompt ForceReply /play dari sesi sebelumnya bisa menggantung setelah
+    # restart (kolom balas tetap muncul saat chat dibuka). Bersihkan di awal.
+    try:
+        play_mode.bersihkan_sisa()
+    except Exception:
+        log.warning("Gagal membersihkan prompt /play lama", exc_info=True)
+
+    from bot.services.sticker import tersedia as ffmpeg_tersedia
+
+    log.info("Chrostt Bot siap (AI: %s, model: %s, admin: %s, ffmpeg: %s)",
              "aktif" if config.AI_ENABLED else "nonaktif",
              config.AI_MODEL,
-             len(config.ADMIN_IDS))
+             len(config.ADMIN_IDS),
+             "ada" if ffmpeg_tersedia() else "TIDAK ADA")
+
+    if not ffmpeg_tersedia():
+        log.warning("ffmpeg tidak ditemukan - fitur Stiker nonaktif sampai ffmpeg terpasang")
+
     print("[SYSTEM] Super App Bot sedang berjalan. Silakan buka Telegram Anda!")
 
     # Jeda singkat biar sesi lama sempat terlepas dari server Telegram
@@ -93,6 +111,10 @@ def run_bot():
             )
         except KeyboardInterrupt:
             print("\n[SYSTEM] Bot dihentikan.")
+            try:
+                play_mode.tutup_semua()
+            except Exception:
+                pass
             break
         except Exception as e:
             if "409" in str(e) or "Conflict" in str(e):

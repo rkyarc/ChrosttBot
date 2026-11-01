@@ -42,3 +42,8 @@ logs/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Database riwayat AI
+data/
+*.db-wal
+*.db-shm

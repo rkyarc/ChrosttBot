@@ -7,6 +7,7 @@ from bot import tg_bot
 from bot.keyboards import markup_download_facebook, markup_kembali_menu_utama
 from bot.services.facebook import FacebookScraperError, extract_facebook, unduh_video
 from bot.sessions import SessionStore
+from bot.decorators import aman_handler
 
 
 # Cache hasil ekstraksi per chat (auto expired, lihat bot/sessions.py)
@@ -23,6 +24,7 @@ FB_URL_PATTERN = re.compile(
 
 
 @tg_bot.message_handler(func=lambda m: bool(FB_URL_PATTERN.search(m.text or "")))
+@aman_handler
 def proses_link_facebook(message):
     """Otomatis menangkap pesan yang berisi link Facebook."""
     chat_id = message.chat.id

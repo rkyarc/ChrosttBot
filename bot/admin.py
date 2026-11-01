@@ -1,4 +1,4 @@
-﻿"""Utilitas admin: cek akses, pencatatan pengguna, dan format pesan admin."""
+"""Utilitas admin: cek akses, pencatatan pengguna, dan format pesan admin."""
 
 import logging
 import time

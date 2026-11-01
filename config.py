@@ -31,6 +31,23 @@ def _parse_id_list(nilai: str) -> tuple[int, ...]:
     return tuple(dict.fromkeys(hasil))
 
 
+
+# ========================
+# LOGGING AKTIVITAS USER
+# ========================
+def _env_bool(nama: str, default: bool = False) -> bool:
+    nilai = (os.getenv(nama) or "").strip().lower()
+    if not nilai:
+        return default
+    return nilai not in ("0", "false", "no", "off")
+
+
+# Cetak setiap pesan/command user ke console
+LOG_USER_MESSAGES = _env_bool("LOG_USER_MESSAGES", True)
+
+# Ikut cetak pesan berisi media (foto/video/stiker), bukan hanya teks
+LOG_USER_MEDIA = _env_bool("LOG_USER_MEDIA", False)
+
 # ========================
 # ADMIN
 # ========================
@@ -58,6 +75,17 @@ AI_WEB_SEARCH = (os.getenv("AI_WEB_SEARCH") or "true").strip().lower() not in (
     "no",
     "off",
 )
+
+# ========================
+# PENYIMPANAN RIWAYAT AI
+# ========================
+# Riwayat obrolan AI disimpan permanen di SQLite (tanpa server, tanpa dependency).
+RIWAYAT_DB = (
+    os.getenv("RIWAYAT_DB") or os.path.join("data", "riwayat-ai.db")
+).strip()
+
+# false = jangan simpan ke disk (database in-memory, hilang saat bot berhenti)
+RIWAYAT_AKTIF = _env_bool("RIWAYAT_AKTIF", True)
 
 if not TELEGRAM_TOKEN:
     raise RuntimeError("TELEGRAM_TOKEN belum diisi. Cek file .env kamu.")

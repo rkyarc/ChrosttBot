@@ -20,5 +20,7 @@ tg_bot = telebot.TeleBot(
     num_threads=12,
     disable_web_page_preview=True,
     exception_handler=_tangani_error,
+    # Wajib True agar bot/user_log.py bisa memasang middleware
+    use_class_middlewares=True,
 )
 

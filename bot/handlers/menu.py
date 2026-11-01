@@ -2,6 +2,7 @@ from bot import tg_bot
 from bot.admin import apakah_admin, pesan_dari_admin
 from bot.keyboards import markup_kembali_menu_utama, markup_menu_utama
 from bot.services.ai import model_aktif, tersedia
+from bot.decorators import aman_handler
 
 GARIS = "─" * 24
 
@@ -18,7 +19,8 @@ TEKS_SAMBUTAN = (
     "📷 <b>Instagram</b> — foto, carousel, reels\n"
     "🎵 <b>TikTok</b> — video, foto, audio\n"
     "📘 <b>Facebook</b> — video HD/SD\n"
-    "▶️ <b>YouTube</b> — video maks 50MB\n\n"
+    "▶️ <b>YouTube</b> — video maks 50MB\n"
+    "🎨 <b>Stiker</b> — foto/video ↔ stiker\n\n"
     f"<code>{GARIS}</code>\n"
     "<i>Pilih tombol di bawah untuk mulai</i>"
 )
@@ -34,6 +36,7 @@ def _teks_info() -> str:
         "• yfinance untuk data saham\n"
         "• rembg untuk hapus background\n"
         "• saveinta, tikwm, yt-dlp untuk downloader\n"
+        "• ffmpeg untuk konversi stiker\n"
         f"• {model_aktif()} untuk Chrostt AI\n\n"
         "<b>Status AI</b>\n"
         f"• Layanan: {status_ai}\n\n"
@@ -46,6 +49,7 @@ def _teks_info() -> str:
 
 
 @tg_bot.message_handler(commands=["start", "menu"])
+@aman_handler
 def tampilkan_menu(message):
     tg_bot.send_message(
         message.chat.id,
@@ -57,6 +61,7 @@ def tampilkan_menu(message):
 
 
 @tg_bot.message_handler(commands=["help", "bantuan"])
+@aman_handler
 def tampilkan_bantuan(message):
     admin = pesan_dari_admin(message)
     admin_baris = "/admin — panel admin bot\n" if admin else ""
@@ -69,6 +74,9 @@ def tampilkan_bantuan(message):
         "/ai &lt;pertanyaan&gt; — tanya langsung\n"
         "/ai_off — keluar mode AI\n"
         "/ai_status — cek status AI\n"
+        "/play — cari &amp; unduh YouTube (kirim judul setelahnya)\n"
+        "/play &lt;judul&gt; — cari langsung tanpa mode tunggu\n"
+        "/del — hapus pesan/media di chat\n"
         "/id — lihat ID Telegram kamu\n"
         f"{admin_baris}"
         "/help — bantuan ini\n\n"
@@ -105,6 +113,7 @@ def kembali_ke_menu_utama(call):
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "menu_info")
+@aman_handler
 def tampilkan_info_bot(call):
     tg_bot.answer_callback_query(call.id)
     tg_bot.edit_message_text(
@@ -118,6 +127,7 @@ def tampilkan_info_bot(call):
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "menu_bg")
+@aman_handler
 def mode_hapus_bg(call):
     tg_bot.answer_callback_query(call.id)
     tg_bot.send_message(
@@ -142,6 +152,7 @@ def _menu_fitur(judul: str, ikon: str, isi: str, catatan: str) -> str:
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "menu_instagram")
+@aman_handler
 def menu_instagram(call):
     tg_bot.answer_callback_query(call.id)
     tg_bot.edit_message_text(
@@ -163,6 +174,7 @@ def menu_instagram(call):
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "menu_tiktok")
+@aman_handler
 def menu_tiktok(call):
     tg_bot.answer_callback_query(call.id)
     tg_bot.edit_message_text(
@@ -184,6 +196,7 @@ def menu_tiktok(call):
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "menu_facebook")
+@aman_handler
 def menu_facebook(call):
     tg_bot.answer_callback_query(call.id)
     tg_bot.edit_message_text(
@@ -195,27 +208,6 @@ def menu_facebook(call):
             "• Video dikirim langsung jika di bawah 50MB\n"
             "• Kalau gagal, bot memberi link unduh manual",
             "Hanya video publik yang bisa diproses.",
-        ),
-        call.message.chat.id,
-        call.message.message_id,
-        parse_mode="HTML",
-        reply_markup=markup_kembali_menu_utama(),
-        disable_web_page_preview=True,
-    )
-
-
-@tg_bot.callback_query_handler(func=lambda call: call.data == "menu_youtube")
-def menu_youtube(call):
-    tg_bot.answer_callback_query(call.id)
-    tg_bot.edit_message_text(
-        _menu_fitur(
-            "YOUTUBE DOWNLOADER",
-            "▶️",
-            "Kirim link YouTube (watch, shorts, live, youtu.be).\n\n"
-            "• Video diunduh otomatis\n"
-            "• Dibatasi 50MB sesuai limit Bot API\n"
-            "• File sementara langsung dihapus setelah dikirim",
-            "Kalau video terlalu besar, coba video yang lebih pendek.",
         ),
         call.message.chat.id,
         call.message.message_id,

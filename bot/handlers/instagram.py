@@ -6,6 +6,7 @@ from telebot import types
 from bot import tg_bot
 from bot.keyboards import markup_kembali_menu_utama
 from bot.services.saveinta import SaveInta
+from bot.decorators import aman_handler
 
 
 INSTAGRAM_URL_PATTERN = re.compile(
@@ -18,6 +19,7 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 
 @tg_bot.message_handler(func=lambda m: bool(INSTAGRAM_URL_PATTERN.search(m.text or "")))
+@aman_handler
 def proses_link_instagram(message):
     chat_id = message.chat.id
     url_instagram = INSTAGRAM_URL_PATTERN.search(message.text).group(0)

@@ -1,7 +1,8 @@
-﻿import re
+import logging
+import re
 import threading
 
-from bot import tg_bot
+from bot import play_mode, tg_bot
 from bot.admin import apakah_admin
 from bot.ai_prompt import (
     MAKS_KARAKTER_RIWAYAT,
@@ -11,9 +12,23 @@ from bot.ai_prompt import (
     system_prompt,
 )
 from bot.keyboards import markup_ai, markup_ai_tertutup, markup_kembali_menu_utama
-from bot.services.ai import AIError, model_aktif, tanya, tersedia, web_aktif
+from bot.riwayat import RIWAYAT
+from bot.services.ai import (
+    HASIL_WEB_ADMIN,
+    MAKS_KARAKTER_HALAMAN_ADMIN,
+    MAKS_PUTARAN_TOOL_ADMIN,
+    TOOL_ADMIN_NAMA,
+    AIError,
+    model_aktif,
+    tanya,
+    tersedia,
+    web_aktif,
+)
 from bot.sessions import SessionStore
 from bot.utils import ke_telegram_html, potong_html, strip_html
+from bot.decorators import aman_handler
+
+log = logging.getLogger("chrosttbot.ai")
 
 # chat_id -> {"riwayat": [{"role", "content"}, ...]}
 AI_SESSIONS = SessionStore(ttl=3600, max_entries=500)
@@ -44,14 +59,49 @@ POLA_LINK = re.compile(
 
 # ================== STATE ==================
 
-def _sesi(chat_id: int) -> dict:
+def _potong_riwayat(riwayat: list[dict]) -> list[dict]:
+    """Batasi riwayat ke batas konteks model.
+
+    Database menyimpan lebih banyak pesan (supaya arsip tetap utuh), tetapi
+    yang dikirim ke model harus tetap kecil agar biaya dan latensi wajar.
+    """
+    if len(riwayat) > MAKS_PESAN_RIWAYAT:
+        riwayat = riwayat[-MAKS_PESAN_RIWAYAT:]
+
+    total = sum(len(p.get("content") or "") for p in riwayat)
+    while total > MAKS_KARAKTER_RIWAYAT and len(riwayat) > 2:
+        total -= len(riwayat.pop(0).get("content") or "")
+
+    return riwayat
+
+
+def _sesi(chat_id: int, akses: str | None = None) -> dict:
+    """Ambil sesi AI chat ini, buat baru kalau belum ada.
+
+    Riwayat permanen dibaca dari SQLite saat sesi pertama kali dibuka, jadi
+    percakapan tetap tersambung setelah bot restart. Kalau ``akses`` diberikan
+    dan berbeda dari pemilik riwayat sebelumnya, riwayat dikosongkan. Ini
+    mencegah konteks admin terbawa ke pengguna biasa di grup yang sama.
+    """
     sesi = AI_SESSIONS.get(chat_id)
+
     if sesi:
-        # Set ulang supaya TTL ikut diperpanjang selama user aktif
-        AI_SESSIONS.set(chat_id, sesi)
+        if akses is not None and sesi.get("akses") != akses:
+            sesi["riwayat"] = []
+            sesi["akses"] = akses
+        else:
+            # Set ulang supaya TTL ikut diperpanjang selama user aktif
+            AI_SESSIONS.set(chat_id, sesi)
         return sesi
 
-    sesi = {"riwayat": []}
+    riwayat = []
+    if akses is not None:
+        try:
+            riwayat = _potong_riwayat(RIWAYAT.siapkan(chat_id, akses))
+        except Exception:
+            log.warning("Gagal memuat riwayat chat %s", chat_id, exc_info=True)
+
+    sesi = {"riwayat": riwayat, "akses": akses}
     AI_SESSIONS.set(chat_id, sesi)
     return sesi
 
@@ -65,8 +115,20 @@ def _reset(chat_id: int) -> None:
     sesi["riwayat"] = []
     AI_SESSIONS.set(chat_id, sesi)
 
+    try:
+        RIWAYAT.hapus(chat_id)
+    except Exception:
+        log.warning("Gagal menghapus riwayat chat %s", chat_id, exc_info=True)
 
-def _tambah_riwayat(sesi: dict, role: str, konten: str) -> None:
+
+def _tambah_riwayat(
+    sesi: dict,
+    role: str,
+    konten: str,
+    chat_id: int | None = None,
+    info: dict | None = None,
+    user_id: int | None = None,
+) -> None:
     sesi["riwayat"].append({"role": role, "content": konten})
 
     if len(sesi["riwayat"]) > MAKS_PESAN_RIWAYAT:
@@ -75,6 +137,21 @@ def _tambah_riwayat(sesi: dict, role: str, konten: str) -> None:
     total = sum(len(p["content"]) for p in sesi["riwayat"])
     while total > MAKS_KARAKTER_RIWAYAT and len(sesi["riwayat"]) > 2:
         total -= len(sesi["riwayat"].pop(0)["content"])
+
+    if chat_id is None:
+        return
+
+    try:
+        RIWAYAT.catat(
+            chat_id,
+            role,
+            konten,
+            akses=sesi.get("akses") or "user",
+            user_id=user_id,
+            info=info,
+        )
+    except Exception:
+        log.warning("Gagal menyimpan riwayat chat %s", chat_id, exc_info=True)
 
 
 # ================== INDIKATOR MENGETIK ==================
@@ -145,11 +222,40 @@ def _user_id(message) -> int | None:
     return getattr(getattr(message, "from_user", None), "id", None)
 
 
+def _akses(user_id: int | None) -> str:
+    """Label tingkat akses, dipakai untuk memisahkan konteks admin & user."""
+    return "admin" if apakah_admin(user_id) else "user"
+
+
+def _info_chat(message) -> dict:
+    """Metadata ringkas untuk ditulis ke database riwayat."""
+    chat = getattr(message, "chat", None)
+    from_user = getattr(message, "from_user", None)
+
+    tipe = getattr(chat, "type", "") or ""
+    # Di chat pribadi judul chat kosong; pakai nama pengirim supaya panel admin
+    # menampilkan sesuatu yang bisa dikenali.
+    nama = getattr(chat, "title", "") or ""
+    if not nama:
+        nama = getattr(from_user, "full_name", "") or getattr(
+            from_user, "first_name", ""
+        ) or ""
+
+    return {
+        "nama": nama,
+        "username": getattr(chat, "username", "")
+        or getattr(from_user, "username", "")
+        or "",
+        "tipe": tipe,
+    }
+
+
 def _jawab(
     chat_id: int,
     pertanyaan: str,
     tampilkan_judul: bool = True,
     user_id: int | None = None,
+    info: dict | None = None,
 ) -> None:
     if not tersedia():
         tg_bot.send_message(
@@ -161,17 +267,18 @@ def _jawab(
         )
         return
 
-    sesi = _sesi(chat_id)
+    admin = apakah_admin(user_id)
+    sesi = _sesi(chat_id, _akses(user_id))
 
     # Kunci per chat: riwayat dibaca & ditulis di dalam lock supaya tidak tabrakan
     with _lock_chat(chat_id):
-        pesan = [{"role": "system", "content": system_prompt()}]
+        pesan = [{"role": "system", "content": system_prompt(admin=admin)}]
         pesan += sesi["riwayat"]
         pesan.append({"role": "user", "content": pertanyaan})
 
         try:
             with _Mengetik(chat_id):
-                hasil = tanya(chat_id, pesan, admin=apakah_admin(user_id))
+                hasil = tanya(chat_id, pesan, admin=admin)
         except AIError as e:
             tg_bot.send_message(
                 chat_id,
@@ -181,8 +288,13 @@ def _jawab(
             )
             return
 
-        _tambah_riwayat(sesi, "user", pertanyaan)
-        _tambah_riwayat(sesi, "assistant", hasil["teks"])
+        _tambah_riwayat(
+            sesi, "user", pertanyaan, chat_id=chat_id, info=info, user_id=user_id
+        )
+        _tambah_riwayat(
+            sesi, "assistant", hasil["teks"], chat_id=chat_id, info=info,
+            user_id=user_id,
+        )
         AI_SESSIONS.set(chat_id, sesi)
 
     tail = _catatan_sumber(hasil.get("sumber") or [])
@@ -196,6 +308,7 @@ def _jawab(
 # ================== HANDLER ==================
 
 @tg_bot.message_handler(commands=["ai"])
+@aman_handler
 def masuk_mode_ai(message):
     """/ai untuk masuk mode asisten, atau /ai <pertanyaan> untuk tanya langsung."""
     chat_id = message.chat.id
@@ -213,7 +326,7 @@ def masuk_mode_ai(message):
     bagian = (message.text or "").split(maxsplit=1)
     pertanyaan = bagian[1].strip() if len(bagian) > 1 else ""
 
-    _sesi(chat_id)
+    _sesi(chat_id, _akses(_user_id(message)))
 
     if not pertanyaan:
         tg_bot.send_message(
@@ -224,10 +337,16 @@ def masuk_mode_ai(message):
         )
         return
 
-    _jawab(chat_id, pertanyaan, user_id=_user_id(message))
+    _jawab(
+        chat_id,
+        pertanyaan,
+        user_id=_user_id(message),
+        info=_info_chat(message),
+    )
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "menu_ai")
+@aman_handler
 def buka_ai_dari_menu(call):
     chat_id = call.message.chat.id
     tg_bot.answer_callback_query(call.id)
@@ -243,7 +362,7 @@ def buka_ai_dari_menu(call):
         )
         return
 
-    _sesi(chat_id)
+    _sesi(chat_id, _akses(getattr(call.from_user, "id", None)))
     tg_bot.edit_message_text(
         SAPANAN_AWAL,
         chat_id,
@@ -254,12 +373,14 @@ def buka_ai_dari_menu(call):
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "ai_reset")
+@aman_handler
 def reset_obrolan(call):
     _reset(call.message.chat.id)
     tg_bot.answer_callback_query(call.id, "🧹 Riwayat obrolan dihapus.")
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "ai_keluar")
+@aman_handler
 def keluar_mode_ai(call):
     AI_SESSIONS.clear(call.message.chat.id)
     tg_bot.answer_callback_query(call.id, "Keluar dari mode AI.")
@@ -274,6 +395,7 @@ def keluar_mode_ai(call):
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "ai_tanya")
+@aman_handler
 def petunjuk_tanya(call):
     tg_bot.answer_callback_query(
         call.id,
@@ -290,9 +412,12 @@ def _layak_diteruskan(teks: str) -> bool:
 
 
 @tg_bot.message_handler(
-    func=lambda m: _aktif(m.chat.id) and _layak_diteruskan(m.text or ""),
+    func=lambda m: _aktif(m.chat.id)
+    and _layak_diteruskan(m.text or "")
+    and not play_mode.aktif(m.chat.id),
     content_types=["text"],
 )
+@aman_handler
 def tangkap_pertanyaan_ai(message):
     """Teks biasa saat mode AI aktif diarahkan ke asisten."""
     teks = (message.text or "").strip()
@@ -318,10 +443,17 @@ def tangkap_pertanyaan_ai(message):
         )
         return
 
-    _jawab(message.chat.id, teks, tampilkan_judul=False, user_id=_user_id(message))
+    _jawab(
+        message.chat.id,
+        teks,
+        tampilkan_judul=False,
+        user_id=_user_id(message),
+        info=_info_chat(message),
+    )
 
 
 @tg_bot.message_handler(commands=["ai_off"])
+@aman_handler
 def matikan_mode_ai(message):
     AI_SESSIONS.clear(message.chat.id)
     tg_bot.send_message(
@@ -333,25 +465,47 @@ def matikan_mode_ai(message):
 
 
 @tg_bot.message_handler(commands=["ai_status"])
+@aman_handler
 def status_ai(message):
     chat_id = message.chat.id
     siap = tersedia()
     mode = "aktif" if _aktif(chat_id) else "nonaktif"
     web = "aktif 🔎" if web_aktif() else "nonaktif"
+    admin = apakah_admin(_user_id(message))
+
+    baris = [
+        f"{SIMBOL} <b>Status AI Assistant</b>",
+        "",
+        f"• Koneksi: {'<b>siap</b>' if siap else '<b>belum dikonfigurasi</b>'}",
+        f"• Model: <code>{model_aktif()}</code>",
+        f"• Web search: {web}",
+        f"• Mode chat: {mode}",
+        f"• Akses: {'<b>admin</b>' if admin else 'pengguna'}",
+    ]
+
+    if admin:
+        baris += [
+            "",
+            "<b>Batas admin</b>",
+            f"• Putaran riset: {MAKS_PUTARAN_TOOL_ADMIN}",
+            f"• Hasil web per cari: {HASIL_WEB_ADMIN}",
+            f"• Isi halaman: {MAKS_KARAKTER_HALAMAN_ADMIN} karakter",
+            f"• Tool diagnostik: {', '.join(TOOL_ADMIN_NAMA)}",
+        ]
 
     tg_bot.send_message(
         chat_id,
-        f"{SIMBOL} <b>Status AI Assistant</b>\n\n"
-        f"• Koneksi: {'<b>siap</b>' if siap else '<b>belum dikonfigurasi</b>'}\n"
-        f"• Model: <code>{model_aktif()}</code>\n"
-        f"• Web search: {web}\n"
-        f"• Mode chat: {mode}",
+        "\n".join(baris),
         parse_mode="HTML",
         reply_markup=markup_ai() if siap else markup_kembali_menu_utama(),
     )
 
 
-@tg_bot.message_handler(func=lambda m: (m.text or "").strip().lower() in ("ai", "chrostt ai"))
+@tg_bot.message_handler(
+    func=lambda m: (m.text or "").strip().lower() in ("ai", "chrostt ai")
+    and not play_mode.aktif(m.chat.id)
+)
+@aman_handler
 def sapa_ai(message):
     if _aktif(message.chat.id):
         return
