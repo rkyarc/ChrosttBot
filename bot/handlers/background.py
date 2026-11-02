@@ -2,6 +2,7 @@ from io import BytesIO
 
 from bot import tg_bot
 from bot.handlers.gerbang import lolos
+from bot.services import aksi
 from bot.services.removebg import RemoveBgError, hapus_background
 
 
@@ -11,6 +12,14 @@ def proses_hapus_bg(message):
 
     if not lolos(message, "umum"):
         return
+
+    # Foto terakhir diingat supaya Chrostt AI bisa memakainya untuk permintaan
+    # lanjutan ("buatkan stiker dari foto tadi") tanpa pengguna kirim ulang.
+    foto = message.photo[-1]
+    aksi.simpan_media(
+        chat_id, "foto", foto.file_id, getattr(foto, "file_size", 0) or 0,
+        user_id=getattr(getattr(message, "from_user", None), "id", None),
+    )
 
     pesan_loading = tg_bot.send_message(
         chat_id,

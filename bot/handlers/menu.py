@@ -10,9 +10,10 @@ TEKS_SAMBUTAN = (
     "✦ <b>CHROSTT BOT</b>\n"
     f"<code>{GARIS}</code>\n\n"
     "Asisten serba bisa di Telegram.\n"
-    "Pilih menu, atau langsung tanya Chrostt AI.\n\n"
+    "Chrostt AI bukan cuma menjawab — ia bisa menjalankan fitur bot.\n\n"
     "<b>Fitur</b>\n"
-    "✦ <b>Chrostt AI</b> — tanya apa saja\n"
+    "✦ <b>Chrostt AI</b> — tanya apa saja, atau suruh hapus BG,\n"
+    "     buat stiker, putar lagu, cek saham, baca berita\n"
     "✂️ <b>Hapus BG</b> — foto jadi transparan\n"
     "📈 <b>Saham</b> — IHSG &amp; emiten BEI\n"
     "📰 <b>Berita IDX</b> — kabar pasar terbaru\n"
@@ -82,6 +83,8 @@ def tampilkan_bantuan(message):
         "/help — bantuan ini\n\n"
         "<b>Cara cepat</b>\n"
         "• Kirim foto → hapus background\n"
+        "• Foto ber-caption (mis. <i>\"buatkan stiker\"</i>) saat mode AI aktif → AI yang proses\n"
+        "• Minta langsung ke AI: <i>\"putarkan lagu lofi\"</i>, <i>\"BBCA berapa?\"</i>\n"
         "• Kirim link IG/TikTok/FB/YouTube → download\n"
         "• Modus AI aktif → semua teks jadi pertanyaan",
         parse_mode="HTML",

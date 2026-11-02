@@ -4,14 +4,18 @@ import time
 import requests
 
 import config
-from bot.services import diagnostik, websearch
+from bot.services import aksi, diagnostik, websearch
+from bot.sessions import SessionStore
 
 
 class AIError(Exception):
     """Error yang aman ditampilkan ke pengguna."""
 
 
-_last_request: dict[int, float] = {}
+# Waktu request terakhir per chat. Memakai SessionStore supaya entri chat yang
+# sudah lama tidak aktif ikut dibuang; dict biasa akan tumbuh terus selama bot
+# hidup dan tidak pernah menyusut.
+_last_request: SessionStore = SessionStore(ttl=300, max_entries=1000)
 MIN_INTERVAL = 1.5  # detik antar request per chat
 
 # Batas putaran tool-calling, supaya model tidak bisa berputar tanpa henti.
@@ -51,11 +55,18 @@ def web_aktif() -> bool:
     return config.AI_ENABLED and config.AI_WEB_SEARCH
 
 
+def aksi_aktif() -> bool:
+    """Tool aksi (hapus bg, stiker, lagu, saham, berita) hanya jalan kalau diaktifkan."""
+    return config.AI_ENABLED and config.AI_AKSI_BOT
+
+
 def daftar_tool(admin: bool = False) -> list[dict]:
     """Tool yang boleh dipakai model. Admin mendapat tool diagnostik tambahan."""
     tools = []
     if web_aktif():
         tools += [websearch.SKEMA_WEB_SEARCH, websearch.SKEMA_BACA_HALAMAN]
+    if aksi_aktif():
+        tools += list(aksi.SKEMA_AKSI)
     if admin:
         tools += list(TOOL_ADMIN)
     return tools
@@ -63,11 +74,11 @@ def daftar_tool(admin: bool = False) -> list[dict]:
 
 def _batasi_rate(chat_id: int) -> None:
     sekarang = time.time()
-    terakhir = _last_request.get(chat_id, 0.0)
+    terakhir = _last_request.get(chat_id) or 0.0
     sisa = MIN_INTERVAL - (sekarang - terakhir)
     if sisa > 0:
         time.sleep(min(sisa, MIN_INTERVAL))
-    _last_request[chat_id] = time.time()
+    _last_request.set(chat_id, time.time())
 
 
 def _normalisasi_konten(konten) -> str:
@@ -230,6 +241,7 @@ def _jalankan_tool_calls(
     calls: list[dict],
     sudah_dicari: set[str],
     admin: bool = False,
+    konteks: "aksi.Konteks | None" = None,
 ) -> list[str]:
     """Eksekusi semua tool yang diminta model, kembalikan catatan sumber.
 
@@ -276,6 +288,13 @@ def _jalankan_tool_calls(
             call["_hasil"] = websearch.jalankan_tool(
                 nama, argumen, jumlah=jumlah_hasil, maks_karakter=maks_halaman
             )
+        elif nama in aksi.NAMA_TOOL:
+            if konteks is None:
+                call["_hasil"] = (
+                    "Tool aksi butuh konteks chat dan tidak bisa dijalankan di sini."
+                )
+                continue
+            call["_hasil"] = aksi.jalankan(nama, argumen, konteks)
         else:
             # Termasuk tool admin (read-only) dan nama tak dikenal
             call["_hasil"] = diagnostik.jalankan_tool(nama, argumen)
@@ -289,15 +308,22 @@ def _jalankan_tool_calls(
             if url:
                 domain = url.split("//", 1)[-1].split("/", 1)[0]
                 catatan.append(f"📄 {domain}")
+        elif nama in aksi.NAMA_TOOL:
+            catatan.append(aksi.catatan(nama))
         elif nama == "status_bot":
             catatan.append("🩺 status bot")
 
     return catatan
 
 
-def tanya(chat_id: int, riwayat: list[dict], admin: bool = False) -> dict:
+def tanya(
+    chat_id: int,
+    riwayat: list[dict],
+    admin: bool = False,
+    konteks: "aksi.Konteks | None" = None,
+) -> dict:
     """
-    Kirim percakapan ke endpoint OpenAI-compatible, dengan dukungan web search.
+    Kirim percakapan ke endpoint OpenAI-compatible, dengan dukungan tool.
 
     Kalau model meminta tool, tool dijalankan lalu hasilnya dikirim balik
     sampai model memberi jawaban final (maksimal MAKS_PUTARAN_TOOL putaran;
@@ -308,6 +334,9 @@ def tanya(chat_id: int, riwayat: list[dict], admin: bool = False) -> dict:
         riwayat: daftar pesan OpenAI (system + history + user).
         admin: kalau True, batas token, jumlah putaran, kedalaman riset, dan
             tool diagnostik read-only ikut dinaikkan.
+        konteks: chat & pengguna pemilik aksi, plus media terakhir. Tool aksi
+            (hapus background, stiker, putar lagu, saham, berita) mengirim
+            hasilnya sendiri ke chat lewat konteks ini.
 
     Returns:
         {"teks": str, "model": str, "total_tokens": int, "sumber": list[str]}
@@ -355,7 +384,7 @@ def tanya(chat_id: int, riwayat: list[dict], admin: bool = False) -> dict:
                 {
                     "role": "user",
                     "content": (
-                        "Pencarian ditutup. Jawab sekarang HANYA memakai hasil yang "
+                        "Tool ditutup. Jawab sekarang HANYA memakai hasil yang "
                         "sudah didapat di atas, tanpa memanggil tool apa pun. "
                         "Kalau data kurang, katakan apa adanya dan sebutkan sumber "
                         "yang sudah ditemukan."
@@ -389,7 +418,7 @@ def tanya(chat_id: int, riwayat: list[dict], admin: bool = False) -> dict:
                 }
             )
 
-            sumber.extend(_jalankan_tool_calls(calls, sudah_dicari, admin))
+            sumber.extend(_jalankan_tool_calls(calls, sudah_dicari, admin, konteks))
 
             for call in calls:
                 pesan.append(
@@ -406,7 +435,7 @@ def tanya(chat_id: int, riwayat: list[dict], admin: bool = False) -> dict:
 
         if not teks and calls_mentah:
             teks = (
-                "Aku sudah mencari di web, tapi belum dapat jawaban yang bisa "
+                "Aku sudah mencoba lewat tool, tapi belum dapat hasil yang bisa "
                 "disimpulkan. Coba perjelas pertanyaannya."
             )
 

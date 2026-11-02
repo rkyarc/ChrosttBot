@@ -13,12 +13,14 @@ from bot.ai_prompt import (
 )
 from bot.keyboards import markup_ai, markup_ai_tertutup, markup_kembali_menu_utama
 from bot.riwayat import RIWAYAT
+from bot.services import aksi
 from bot.services.ai import (
     HASIL_WEB_ADMIN,
     MAKS_KARAKTER_HALAMAN_ADMIN,
     MAKS_PUTARAN_TOOL_ADMIN,
     TOOL_ADMIN_NAMA,
     AIError,
+    aksi_aktif,
     model_aktif,
     tanya,
     tersedia,
@@ -261,6 +263,7 @@ def _jawab(
     tampilkan_judul: bool = True,
     user_id: int | None = None,
     info: dict | None = None,
+    media: dict | None = None,
 ) -> None:
     if not tersedia():
         tg_bot.send_message(
@@ -291,6 +294,7 @@ def _jawab(
             return
 
     sesi = _sesi(chat_id, _akses(user_id))
+    konteks = aksi.Konteks(chat_id=chat_id, user_id=user_id, media=media)
 
     # Kunci per chat: riwayat dibaca & ditulis di dalam lock supaya tidak tabrakan
     with _lock_chat(chat_id):
@@ -300,7 +304,7 @@ def _jawab(
 
         try:
             with _Mengetik(chat_id):
-                hasil = tanya(chat_id, pesan, admin=admin)
+                hasil = tanya(chat_id, pesan, admin=admin, konteks=konteks)
         except AIError as e:
             tg_bot.send_message(
                 chat_id,
@@ -434,6 +438,130 @@ def _layak_diteruskan(teks: str) -> bool:
     return not POLA_LINK.search(teks)
 
 
+# ================== MEDIA UNTUK AKSI ==================
+
+def _media_dari(message) -> dict | None:
+    """Foto atau dokumen gambar pada pesan ini, dalam bentuk ringkas."""
+    foto = getattr(message, "photo", None)
+    if foto:
+        terbesar = foto[-1]
+        return {
+            "jenis": "foto",
+            "file_id": terbesar.file_id,
+            "ukuran": getattr(terbesar, "file_size", 0) or 0,
+        }
+
+    dokumen = getattr(message, "document", None)
+    if dokumen and str(getattr(dokumen, "mime_type", "") or "").startswith("image/"):
+        return {
+            "jenis": "foto",
+            "file_id": dokumen.file_id,
+            "ukuran": getattr(dokumen, "file_size", 0) or 0,
+        }
+
+    return None
+
+
+def _caption(message) -> str:
+    return (getattr(message, "caption", None) or "").strip()
+
+
+def _perintah_ai(teks: str) -> bool:
+    """True kalau caption berupa /ai, /ai@bot, atau '/ai <pertanyaan>'."""
+    rendah = teks.lower()
+    if not rendah.startswith("/ai"):
+        return False
+    sisa = rendah[3:]
+    return not sisa or sisa[0].isspace() or sisa.startswith("@")
+
+
+def _stiker_menunggu_media(chat_id: int) -> bool:
+    """True kalau alur stiker sedang menunggu media dari pengguna.
+
+    Sesi stiker tidak langsung dihapus setelah hasil dibuat (tombol PNG/MP4
+    masih memakai ``path``), jadi keberadaan sesi saja bukan alasan untuk
+    mengalah. Yang menang hanya saat pengguna baru memilih alur dan medianya
+    belum diterima.
+    """
+    from bot.handlers.sticker import STIKER_SESSIONS
+
+    sesi = STIKER_SESSIONS.get(chat_id)
+    return bool(sesi) and not sesi.get("path")
+
+
+def direbut_ai(message) -> bool:
+    """True kalau foto ber-caption harus diproses AI, bukan auto hapus background.
+
+    Foto tanpa caption tetap jatuh ke handler otomatis. Alur stiker yang baru
+    dibuka juga diprioritaskan: handler AI didaftarkan lebih dulu, jadi tanpa
+    cek ini foto untuk stiker akan tertelan AI. Mode /play tidak perlu dicek
+    karena media sudah menutupnya di ``handlers/sesi.py`` sebelum handler ini
+    berjalan.
+    """
+    if not tersedia():
+        return False
+
+    teks = _caption(message)
+    if not teks or not _media_dari(message):
+        return False
+
+    # Caption perintah lain (mis. /play) tetap milik handler-nya sendiri
+    if teks.startswith("/") and not _perintah_ai(teks):
+        return False
+
+    if _stiker_menunggu_media(message.chat.id):
+        return False
+
+    return _aktif(message.chat.id) or _perintah_ai(teks)
+
+
+def _pertanyaan_media(teks: str) -> str:
+    """Buang prefix /ai pada caption, sisakan pertanyaannya."""
+    if not _perintah_ai(teks):
+        return teks
+
+    bagian = teks.split(maxsplit=1)
+    if len(bagian) < 2:
+        return ""
+    return bagian[1].strip()
+
+
+@tg_bot.message_handler(content_types=["photo", "document"], func=direbut_ai)
+@aman_handler
+def tangkap_media_ai(message):
+    """Foto ber-caption saat mode AI aktif: caption jadi instruksi, foto jadi bahan."""
+    chat_id = message.chat.id
+    media = _media_dari(message)
+    if not media:
+        return
+
+    user_id = _user_id(message)
+    aksi.simpan_media(
+        chat_id, media["jenis"], media["file_id"], media["ukuran"], user_id=user_id
+    )
+    _sesi(chat_id, _akses(user_id))
+
+    pertanyaan = _pertanyaan_media(_caption(message))
+    if not pertanyaan:
+        tg_bot.send_message(
+            chat_id,
+            "📎 Foto diterima. Mau diapakan?\n"
+            "<i>Contoh: hapus background-nya, atau buatkan stiker.</i>",
+            parse_mode="HTML",
+            reply_markup=markup_ai(),
+        )
+        return
+
+    _jawab(
+        chat_id,
+        pertanyaan,
+        tampilkan_judul=False,
+        user_id=user_id,
+        info=_info_chat(message),
+        media=media,
+    )
+
+
 @tg_bot.message_handler(
     func=lambda m: _aktif(m.chat.id)
     and _layak_diteruskan(m.text or "")
@@ -472,6 +600,7 @@ def tangkap_pertanyaan_ai(message):
         tampilkan_judul=False,
         user_id=_user_id(message),
         info=_info_chat(message),
+        media=aksi.ambil_media(message.chat.id, _user_id(message)),
     )
 
 
@@ -502,6 +631,7 @@ def status_ai(message):
         f"• Koneksi: {'<b>siap</b>' if siap else '<b>belum dikonfigurasi</b>'}",
         f"• Model: <code>{model_aktif()}</code>",
         f"• Web search: {web}",
+        f"• Aksi bot: {'aktif ⚙️' if aksi_aktif() else 'nonaktif'}",
         f"• Mode chat: {mode}",
         f"• Akses: {'<b>admin</b>' if admin else 'pengguna'}",
     ]
@@ -513,6 +643,7 @@ def status_ai(message):
             f"• Putaran riset: {MAKS_PUTARAN_TOOL_ADMIN}",
             f"• Hasil web per cari: {HASIL_WEB_ADMIN}",
             f"• Isi halaman: {MAKS_KARAKTER_HALAMAN_ADMIN} karakter",
+            f"• Tool aksi bot: {', '.join(aksi.NAMA_TOOL)}",
             f"• Tool diagnostik: {', '.join(TOOL_ADMIN_NAMA)}",
         ]
 

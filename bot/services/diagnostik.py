@@ -44,6 +44,7 @@ def status_bot() -> str:
         f"- AI aktif: {'ya' if layanan_ai.tersedia() else 'tidak'}",
         f"- Model: {layanan_ai.model_aktif()}",
         f"- Web search: {'aktif' if layanan_ai.web_aktif() else 'nonaktif'}",
+        f"- Aksi bot lewat AI: {'aktif' if layanan_ai.aksi_aktif() else 'nonaktif'}",
         f"- ffmpeg: {'ada' if shutil.which('ffmpeg') else 'TIDAK ADA'}",
         f"- Python: {platform.python_version()} ({sys.platform})",
         f"- Folder kerja: {os.getcwd()}",
@@ -66,9 +67,9 @@ SKEMA_STATUS_BOT = {
         "name": "status_bot",
         "description": (
             "Ambil status runtime Chrostt Bot: uptime, jumlah pengguna agregat, "
-            "model AI, status web search, ketersediaan ffmpeg, versi Python, dan "
-            "sisa disk. Tool ini hanya membaca; tidak mengubah apa pun. "
-            "Khusus admin."
+            "model AI, status web search, status aksi bot lewat AI, ketersediaan "
+            "ffmpeg, versi Python, dan sisa disk. Tool ini hanya membaca; tidak "
+            "mengubah apa pun. Khusus admin."
         ),
         "parameters": {
             "type": "object",

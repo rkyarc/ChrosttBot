@@ -177,11 +177,11 @@ class TanyaTest(unittest.TestCase):
         config.AI_ENABLED = True
         config.AI_API_KEY = "kunci-uji"
         config.AI_WEB_SEARCH = False
-        ai._last_request.clear()
+        ai._last_request._data.clear()
 
     def tearDown(self):
         config.AI_ENABLED, config.AI_API_KEY, config.AI_WEB_SEARCH = self.asli
-        ai._last_request.clear()
+        ai._last_request._data.clear()
 
     def _jawaban(self, teks="halo", tool_calls=None):
         message = {"content": teks}
@@ -258,10 +258,10 @@ class TanyaTest(unittest.TestCase):
 
 class BatasiRateTest(unittest.TestCase):
     def setUp(self):
-        ai._last_request.clear()
+        ai._last_request._data.clear()
 
     def tearDown(self):
-        ai._last_request.clear()
+        ai._last_request._data.clear()
 
     def test_request_pertama_tidak_menunggu(self):
         with mock.patch.object(ai.time, "sleep") as tidur:
@@ -279,6 +279,23 @@ class BatasiRateTest(unittest.TestCase):
             ai._batasi_rate(1)
             ai._batasi_rate(2)
         tidur.assert_not_called()
+
+    def test_jejak_rate_dibatasi_jumlah_entri(self):
+        # Tanpa batas, bot yang hidup lama menyimpan satu entri per chat selamanya.
+        banyak = ai._last_request.max_entries + 50
+        with mock.patch.object(ai.time, "sleep"):
+            for chat_id in range(banyak):
+                ai._batasi_rate(chat_id)
+        self.assertLessEqual(len(ai._last_request._data), ai._last_request.max_entries)
+
+    def test_jejak_rate_kedaluwarsa_setelah_ttl(self):
+        ai._last_request.set(1, 123.0)
+        waktu_simpan = ai._last_request._data[1][0]
+
+        with mock.patch.object(ai.time, "time", return_value=waktu_simpan + 10_000):
+            self.assertIsNone(ai._last_request.get(1))
+
+        self.assertNotIn(1, ai._last_request._data)
 
 
 if __name__ == "__main__":
