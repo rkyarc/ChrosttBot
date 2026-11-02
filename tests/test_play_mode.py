@@ -1,4 +1,4 @@
-﻿"""Uji siklus mode tunggu /play: prompt ForceReply harus selalu bersih.
+"""Uji siklus mode tunggu /play: prompt ForceReply harus selalu bersih.
 
 Bug paling mahal di sini adalah prompt yang menggantung di chat pengguna,
 jadi test-nya menekankan pembersihan dan kepemilikan mode.
