@@ -4,7 +4,9 @@ Catatan penting: YouTube saat ini TIDAK lagi menyediakan format progresif
 (video+audio menyatu) untuk sebagian besar video. Semua format video bersifat
 video-only, jadi audio harus diunduh terpisah lalu digabung ffmpeg.
 
-Semua hasil dibatasi 50MB karena itu batas upload Bot API Telegram.
+Semua hasil dibatasi 50MB karena itu batas upload Bot API Telegram. File yang
+tetap lebih besar tidak dianggap error: service melempar MediaTerlaluBesar dan
+handler mengirim tautan unduhan.
 """
 
 import os
@@ -14,7 +16,9 @@ import tempfile
 
 import yt_dlp
 
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+from bot.services.media import BATAS_UPLOAD_BYTES, MediaTerlaluBesar
+
+MAX_UPLOAD_BYTES = BATAS_UPLOAD_BYTES
 MAX_MB = MAX_UPLOAD_BYTES // 1048576
 
 # Batas durasi agar tidak mencoba mengunduh video 3 jam
@@ -156,9 +160,15 @@ def _cek_durasi(url: str) -> dict:
 
     durasi = info.get("duration") or 0
     if durasi > _MAX_DURASI:
-        raise YouTubeDownloadError(
-            f"Video terlalu panjang ({_format_durasi(durasi)}). "
-            "Maksimal 1 jam agar tidak melebihi batas 50MB."
+        # Bukan ditolak mentah: handler mengirim tautan supaya video panjang
+        # tetap bisa diunduh lewat browser.
+        raise MediaTerlaluBesar(
+            url,
+            None,
+            catatan=(
+                f"Video berdurasi {_format_durasi(durasi)}, di atas batas 1 jam; "
+                "ukurannya hampir pasti melebihi 50MB."
+            ),
         )
 
     return info
@@ -209,18 +219,19 @@ def download_youtube_video(url: str, output_path: str = None) -> str:
 
     path = _cari_file_hasil(folder, info.get("id", ""))
     if not path:
-        raise YouTubeDownloadError(
-            "File hasil unduhan tidak ditemukan. "
-            "Kemungkinan video melebihi batas 50MB."
+        # max_filesize menghentikan unduhan sebelum selesai: file jelas
+        # melebihi batas, jadi handler cukup mengirim tautan sumbernya.
+        bersihkan_folder(folder)
+        raise MediaTerlaluBesar(
+            url,
+            None,
+            catatan="Pilih kualitas lebih rendah di YouTube, atau unduh lewat browser.",
         )
 
     ukuran = os.path.getsize(path)
     if ukuran > MAX_UPLOAD_BYTES:
-        _hapus(path)
-        raise YouTubeDownloadError(
-            f"Ukuran video {ukuran // 1048576}MB melebihi batas upload Telegram "
-            "(50MB). Coba video yang lebih pendek."
-        )
+        bersihkan_folder(folder)
+        raise MediaTerlaluBesar(url, ukuran)
 
     return path
 
@@ -262,11 +273,19 @@ def download_youtube_audio(url: str, output_path: str = None) -> str:
 
     path = _cari_file_hasil(folder, info.get("id", ""), ekstensi=".mp3")
     if not path:
-        raise YouTubeDownloadError("File audio hasil unduhan tidak ditemukan.")
+        # Sama seperti video: max_filesize menghentikan unduhan sebelum
+        # post-processing, jadi tidak ada MP3 yang bisa dikirim.
+        bersihkan_folder(folder)
+        raise MediaTerlaluBesar(
+            url,
+            None,
+            catatan="Audio terlalu panjang untuk dikirim lewat bot, unduh lewat browser.",
+        )
 
-    if os.path.getsize(path) > MAX_UPLOAD_BYTES:
-        _hapus(path)
-        raise YouTubeDownloadError("Audio melebihi batas upload Telegram (50MB).")
+    ukuran = os.path.getsize(path)
+    if ukuran > MAX_UPLOAD_BYTES:
+        bersihkan_folder(folder)
+        raise MediaTerlaluBesar(url, ukuran)
 
     return path
 
@@ -310,14 +329,6 @@ def _format_durasi(detik) -> str:
     if menit:
         return f"{menit}m {detik}d"
     return f"{detik} detik"
-
-
-def _hapus(path: str) -> None:
-    try:
-        if path and os.path.exists(path):
-            os.remove(path)
-    except OSError:
-        pass
 
 
 def bersihkan_folder(path: str) -> None:

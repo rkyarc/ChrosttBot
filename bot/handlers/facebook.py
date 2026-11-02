@@ -4,9 +4,13 @@ from io import BytesIO
 from telebot import types
 
 from bot import tg_bot
+from bot.handlers.gerbang import lolos
+from bot.handlers.unduhan import kirim_tautan_unduh
 from bot.keyboards import markup_download_facebook, markup_kembali_menu_utama
 from bot.services.facebook import FacebookScraperError, extract_facebook, unduh_video
+from bot.services.media import BATAS_UPLOAD_BYTES, MediaTerlaluBesar
 from bot.sessions import SessionStore
+from bot.utils import escape_html
 from bot.decorators import aman_handler
 
 
@@ -14,7 +18,7 @@ from bot.decorators import aman_handler
 FB_SESSIONS = SessionStore()
 
 # Batas upload Bot API Telegram = 50MB
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+MAX_UPLOAD_BYTES = BATAS_UPLOAD_BYTES
 
 # Regex untuk menangkap link facebook.com atau fb.watch
 FB_URL_PATTERN = re.compile(
@@ -29,6 +33,9 @@ def proses_link_facebook(message):
     """Otomatis menangkap pesan yang berisi link Facebook."""
     chat_id = message.chat.id
     url_fb = FB_URL_PATTERN.search(message.text).group(0)
+
+    if not lolos(message, "unduh"):
+        return
 
     pesan_loading = tg_bot.send_message(
         chat_id,
@@ -63,7 +70,7 @@ def proses_link_facebook(message):
 
     except FacebookScraperError as e:
         tg_bot.edit_message_text(
-            f"❌ <b>Gagal Mengekstrak</b>\n\n{str(e)[:300]}\n\n"
+            f"❌ <b>Gagal Mengekstrak</b>\n\n{escape_html(str(e)[:300])}\n\n"
             "<i>Pastikan link Facebook valid dan video tidak diprivate.</i>",
             chat_id,
             pesan_loading.message_id,
@@ -72,7 +79,7 @@ def proses_link_facebook(message):
         )
     except Exception as e:
         tg_bot.edit_message_text(
-            f"⚠️ <b>Error tidak terduga</b>\n\n<code>{str(e)[:200]}</code>",
+            f"⚠️ <b>Error tidak terduga</b>\n\n<code>{escape_html(str(e)[:200])}</code>",
             chat_id,
             pesan_loading.message_id,
             parse_mode="HTML",
@@ -110,6 +117,9 @@ def aksi_download_facebook(call):
         tg_bot.answer_callback_query(call.id, "❌ Link tidak tersedia.", show_alert=True)
         return
 
+    if not lolos(call, "unduh"):
+        return
+
     tg_bot.answer_callback_query(call.id, f"⏳ Mengunduh video kualitas {quality_text}...")
 
     status_msg = tg_bot.send_message(
@@ -144,6 +154,27 @@ def aksi_download_facebook(call):
 
         tg_bot.delete_message(chat_id, status_msg.message_id)
 
+    except MediaTerlaluBesar as e:
+        try:
+            tg_bot.delete_message(chat_id, status_msg.message_id)
+        except Exception:
+            pass
+
+        alternatif = []
+        if e.url == hd_url and sd_url:
+            alternatif.append(("🔗 Coba Kualitas SD", sd_url))
+        elif e.url == sd_url and hd_url and ".m3u8" not in hd_url:
+            alternatif.append(("🔗 Coba Kualitas HD", hd_url))
+
+        kirim_tautan_unduh(
+            chat_id,
+            e.url or video_url,
+            ukuran=e.ukuran_bytes,
+            jenis="video Facebook",
+            catatan=f"Kualitas {quality_text} tidak bisa dikirim langsung ke Telegram.",
+            alternatif=alternatif,
+        )
+
     except Exception as e:
         try:
             tg_bot.delete_message(chat_id, status_msg.message_id)
@@ -165,7 +196,7 @@ def aksi_download_facebook(call):
 
         error_text = (
             "❌ <b>Gagal mengirim video langsung ke Telegram</b>\n\n"
-            f"<b>Alasan:</b>\n<code>{str(e)[:200]}</code>\n\n"
+            f"<b>Alasan:</b>\n<code>{escape_html(str(e)[:200])}</code>\n\n"
             "<i>File ini kemungkinan lebih dari 50MB (batas Bot API), server menolak, "
             "atau koneksi timeout. Klik tombol di bawah untuk mengunduh manual lewat browser.</i>"
         )

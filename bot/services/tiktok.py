@@ -10,6 +10,8 @@ import time
 
 import cloudscraper
 
+from bot.services.media import BATAS_UPLOAD_BYTES, MediaTerlaluBesar
+
 
 _HEADERS = {
     "accept": "*/*",
@@ -28,7 +30,7 @@ _BASE_URL = "https://www.tikwm.com"
 _TIMEOUT_EKSTRAK = (10, 45)
 _TIMEOUT_UNDUH = (15, 180)
 
-_MAX_UNDUH_BYTES = 50 * 1024 * 1024
+_MAX_UNDUH_BYTES = BATAS_UPLOAD_BYTES
 MAKS_PERCOBAAN = 3
 
 
@@ -203,10 +205,8 @@ def unduh_media(url: str, timeout=None) -> bytes:
 
                 panjang = response.headers.get("content-length")
                 if panjang and panjang.isdigit() and int(panjang) > _MAX_UNDUH_BYTES:
-                    mb = int(panjang) // 1048576
-                    raise TikTokScraperError(
-                        f"Media {mb}MB melebihi batas upload Telegram (50MB)."
-                    )
+                    # Batal sebelum menghabiskan bandwidth & RAM server
+                    raise MediaTerlaluBesar(url, int(panjang))
 
                 potongan = []
                 total = 0
@@ -216,9 +216,7 @@ def unduh_media(url: str, timeout=None) -> bytes:
                     potongan.append(chunk)
                     total += len(chunk)
                     if total > _MAX_UNDUH_BYTES:
-                        raise TikTokScraperError(
-                            "Media melebihi batas upload Telegram (50MB)."
-                        )
+                        raise MediaTerlaluBesar(url, total)
 
                 if not potongan:
                     galat_terakhir = TikTokScraperError("Media kosong.")
@@ -226,7 +224,7 @@ def unduh_media(url: str, timeout=None) -> bytes:
 
                 return b"".join(potongan)
 
-        except TikTokScraperError:
+        except (TikTokScraperError, MediaTerlaluBesar):
             raise
         except Exception as e:
             galat_terakhir = e

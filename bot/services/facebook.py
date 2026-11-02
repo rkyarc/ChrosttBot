@@ -3,6 +3,8 @@ from io import BytesIO
 import cloudscraper
 from bs4 import BeautifulSoup
 
+from bot.services.media import MediaTerlaluBesar
+
 
 class FacebookScraperError(Exception):
     """Custom exception untuk error pada scraper Facebook."""
@@ -74,9 +76,7 @@ def unduh_video(url: str, max_bytes: int, timeout: int = 60) -> bytes:
 
         panjang = response.headers.get("content-length")
         if panjang and panjang.isdigit() and int(panjang) > max_bytes:
-            raise FacebookScraperError(
-                f"Ukuran video {int(panjang) // 1048576}MB melebihi batas upload Telegram (50MB)."
-            )
+            raise MediaTerlaluBesar(url, int(panjang))
 
         buffer = BytesIO()
         for chunk in response.iter_content(chunk_size=65536):
@@ -84,8 +84,6 @@ def unduh_video(url: str, max_bytes: int, timeout: int = 60) -> bytes:
                 continue
             buffer.write(chunk)
             if buffer.tell() > max_bytes:
-                raise FacebookScraperError(
-                    "Ukuran video melebihi batas upload Telegram (50MB)."
-                )
+                raise MediaTerlaluBesar(url, buffer.tell())
 
     return buffer.getvalue()

@@ -4,8 +4,12 @@ from io import BytesIO
 from telebot import types
 
 from bot import tg_bot
+from bot.handlers.gerbang import lolos
+from bot.handlers.unduhan import kirim_tautan_unduh
 from bot.keyboards import markup_kembali_menu_utama
+from bot.services.media import MediaTerlaluBesar
 from bot.services.saveinta import SaveInta
+from bot.utils import escape_html
 from bot.decorators import aman_handler
 
 
@@ -14,15 +18,15 @@ INSTAGRAM_URL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Batas upload Bot API Telegram = 50MB
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024
-
 
 @tg_bot.message_handler(func=lambda m: bool(INSTAGRAM_URL_PATTERN.search(m.text or "")))
 @aman_handler
 def proses_link_instagram(message):
     chat_id = message.chat.id
     url_instagram = INSTAGRAM_URL_PATTERN.search(message.text).group(0)
+
+    if not lolos(message, "unduh"):
+        return
 
     pesan_loading = tg_bot.send_message(
         chat_id,
@@ -72,7 +76,7 @@ def proses_link_instagram(message):
 
     except Exception as e:
         tg_bot.edit_message_text(
-            f"❌ <b>Gagal memproses Instagram</b>\n\n<code>{str(e)[:300]}</code>",
+            f"❌ <b>Gagal memproses Instagram</b>\n\n<code>{escape_html(str(e)[:300])}</code>",
             chat_id,
             pesan_loading.message_id,
             parse_mode="HTML",
@@ -102,13 +106,14 @@ def kirim_media_berurutan(chat_id, scraper, items):
 
 
 def kirim_video_instagram(chat_id, scraper, url, index):
-    data = scraper.unduh_media(url)
-
-    if len(data) > MAX_UPLOAD_BYTES:
-        tg_bot.send_message(
+    try:
+        data = scraper.unduh_media(url)
+    except MediaTerlaluBesar as e:
+        kirim_tautan_unduh(
             chat_id,
-            f"⚠️ Video #{index} melebihi batas upload Telegram (50MB).\n\nURL langsung:\n{url}",
-            disable_web_page_preview=True,
+            url,
+            ukuran=e.ukuran_bytes,
+            jenis=f"video Instagram #{index}",
         )
         return
 
@@ -129,12 +134,11 @@ def kirim_foto_instagram(chat_id, scraper, images):
         except Exception:
             # Fallback: unduh manual kalau Telegram gagal fetch URL langsung
             for url in chunk:
-                data = scraper.unduh_media(url)
-                if len(data) > MAX_UPLOAD_BYTES:
-                    tg_bot.send_message(
-                        chat_id,
-                        f"⚠️ Foto melebihi batas upload Telegram (50MB).\n\nURL langsung:\n{url}",
-                        disable_web_page_preview=True,
+                try:
+                    data = scraper.unduh_media(url)
+                except MediaTerlaluBesar as e:
+                    kirim_tautan_unduh(
+                        chat_id, url, ukuran=e.ukuran_bytes, jenis="foto Instagram"
                     )
                     continue
                 tg_bot.send_photo(chat_id, BytesIO(data))
