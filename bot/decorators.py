@@ -8,6 +8,7 @@ Dipakai HANYA pada handler yang belum punya try/except sendiri, supaya
 pesan error khusus (mis. TikTok/YouTube/stiker) tidak tertimpa.
 """
 
+import contextlib
 import functools
 import logging
 import traceback
@@ -47,10 +48,8 @@ def _beri_tahu(obj, chat_id, nama_handler):
     # Callback perlu dijawab dulu supaya indikator loading berhenti
     cb_id = getattr(obj, "id", None) if hasattr(obj, "data") else None
     if cb_id:
-        try:
+        with contextlib.suppress(Exception):
             tg_bot.answer_callback_query(cb_id, "Terjadi kesalahan.", show_alert=False)
-        except Exception:
-            pass
 
     try:
         tg_bot.send_message(chat_id, teks, parse_mode="HTML")

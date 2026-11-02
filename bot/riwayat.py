@@ -9,6 +9,7 @@ Setiap chat punya satu baris di tabel ``chat`` dan pesan-pesannya di tabel
 simpanan di disk boleh lebih panjang daripada yang dipakai model.
 """
 
+import contextlib
 import logging
 import os
 import sqlite3
@@ -160,10 +161,8 @@ class RiwayatStore:
 
         ukuran = 0
         if self.path != ":memory:":
-            try:
+            with contextlib.suppress(OSError):
                 ukuran = os.path.getsize(self.path)
-            except OSError:
-                pass
 
         return {
             "jumlah_chat": jumlah_chat,
@@ -352,15 +351,17 @@ class RiwayatStore:
 
     @staticmethod
     def _ke_dict(baris: sqlite3.Row) -> dict:
+        # sqlite3.Row tidak punya .get(), jadi konversi dulu ke dict biasa
+        data = dict(baris)
         return {
-            "chat_id": baris["chat_id"],
-            "user_id": baris["user_id"],
-            "nama": baris["nama"] or "",
-            "username": baris["username"] or "",
-            "tipe": baris["tipe"] or "",
-            "akses": baris["akses"] or "user",
-            "jumlah_pesan": baris["jumlah"] if "jumlah" in baris.keys() else 0,
-            "diperbarui": baris["diperbarui"] or 0,
+            "chat_id": data["chat_id"],
+            "user_id": data["user_id"],
+            "nama": data["nama"] or "",
+            "username": data["username"] or "",
+            "tipe": data["tipe"] or "",
+            "akses": data["akses"] or "user",
+            "jumlah_pesan": data.get("jumlah", 0),
+            "diperbarui": data["diperbarui"] or 0,
         }
 
     def _buat_chat(

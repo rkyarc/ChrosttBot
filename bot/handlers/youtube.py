@@ -1,5 +1,6 @@
 """Handler YouTube: unduh dari link, /play <query>, dan konversi audio."""
 
+import contextlib
 import logging
 import os
 import re
@@ -140,10 +141,8 @@ def _lepas_alur_lain(chat_id: int) -> None:
     pyTelegramBotAPI menjalankan next-step handler sebelum handler biasa,
     jadi pesan judul bisa 'hilang' kalau alur lain masih terpasang.
     """
-    try:
+    with contextlib.suppress(Exception):
         tg_bot.clear_step_handler_by_chat_id(chat_id)
-    except Exception:
-        pass
 
 
 def mode_tunggu_play(

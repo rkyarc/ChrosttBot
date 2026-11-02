@@ -28,8 +28,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt ruff
 
-      - name: Ruff (error nyata saja)
-        run: ruff check bot main.py config.py --select F,E9
+      - name: Ruff (aturan dari pyproject.toml)
+        run: ruff check bot main.py config.py tests
 
       - name: Compile semua modul
         run: python -m compileall -q bot main.py config.py

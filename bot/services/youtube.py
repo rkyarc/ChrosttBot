@@ -292,10 +292,20 @@ def download_youtube_audio(url: str, output_path: str = None) -> str:
 
 # ==================== HELPER ====================
 
+_EKSTENSI_SEMENTARA = (".part", ".ytdl", ".temp")
+
+
 def _cari_file_hasil(folder: str, video_id: str, ekstensi: str = None):
-    """Cari file hasil di folder (nama bisa berubah setelah post-processing)."""
+    """Cari file hasil di folder (nama bisa berubah setelah post-processing).
+
+    File sementara yt-dlp (.part/.ytdl/.temp) selalu dilewati di semua jalur.
+    Tanpa ini, unduhan yang belum selesai bisa terpilih sebagai hasil karena
+    ukurannya paling besar, lalu dikirim ke pengguna sebagai video rusak.
+    """
     kandidat = []
     for nama in os.listdir(folder):
+        if nama.endswith(_EKSTENSI_SEMENTARA):
+            continue
         path = os.path.join(folder, nama)
         if not os.path.isfile(path):
             continue
@@ -308,7 +318,7 @@ def _cari_file_hasil(folder: str, video_id: str, ekstensi: str = None):
     if not kandidat:
         # Fallback: file apa pun yang bukan part/temp
         for nama in os.listdir(folder):
-            if nama.endswith((".part", ".ytdl", ".temp")):
+            if nama.endswith(_EKSTENSI_SEMENTARA):
                 continue
             path = os.path.join(folder, nama)
             if os.path.isfile(path):

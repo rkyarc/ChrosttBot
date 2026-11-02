@@ -33,17 +33,22 @@ log = logging.getLogger("chrosttbot.ai")
 # chat_id -> {"riwayat": [{"role", "content"}, ...]}
 AI_SESSIONS = SessionStore(ttl=3600, max_entries=500)
 
-# pyTelegramBotAPI memproses update paralel; kunci per chat supaya riwayat tidak tabrakan
-_LOCKS: dict[int, threading.Lock] = {}
+# pyTelegramBotAPI memproses update paralel; kunci per chat supaya riwayat tidak
+# tabrakan. Disimpan di SessionStore agar ikut kedaluwarsa — kalau tidak, bot
+# yang hidup berbulan-bulan menumpuk satu Lock untuk setiap chat selamanya.
+_LOCKS = SessionStore(ttl=3600, max_entries=500)
 _LOCKS_GUARD = threading.Lock()
 
 
 def _lock_chat(chat_id: int) -> threading.Lock:
+    """Lock milik satu chat, dibuat sekali dan ikut TTL sesi AI."""
     with _LOCKS_GUARD:
         lock = _LOCKS.get(chat_id)
         if lock is None:
             lock = threading.Lock()
-            _LOCKS[chat_id] = lock
+        # Selalu set ulang: sekaligus memperpanjang TTL supaya lock tidak
+        # kedaluwarsa saat chat masih aktif dipakai.
+        _LOCKS.set(chat_id, lock)
         return lock
 
 

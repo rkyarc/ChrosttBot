@@ -191,7 +191,8 @@ class SaveInta:
         # === FALLBACK PENTING: Ekstrak semua URL di kartu dan klasifikasikan ===
         all_urls = []
         for u in re.findall(r"""https?://[^\s"'<>\\]+""", card):
-            if "saveinta.com" in u: continue
+            if "saveinta.com" in u:
+                continue
             u = u.rstrip('";,')
             all_urls.append(u)
             
@@ -262,7 +263,8 @@ class SaveInta:
         else:
             # fallback terakhir: sapu semua URL (jarang kepake)
             for u in re.findall(r"""https?://[^\s"'<>\\]+""", html_text):
-                if "saveinta.com" in u or u in videos or u in images: continue
+                if "saveinta.com" in u or u in videos or u in images:
+                    continue
                 kind = self._classify(u)
                 if kind == "FOTO":
                     images.append(u)
