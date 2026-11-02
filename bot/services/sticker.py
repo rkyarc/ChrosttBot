@@ -25,6 +25,10 @@ SISI = 512
 DURASI_ANIM = 3.0
 FPS_ANIM = 30
 
+# Stiker statis tidak punya durasi. Saat dijadikan MP4, frame tunggal itu
+# diberi durasi supaya hasilnya bisa diputar (sebelumnya cuma 0,04 detik).
+DURASI_MP4_STATIS = 3.0
+
 # Batas media masuk yang mau diproses (hindari OOM/CPU lama)
 MAX_INPUT_BYTES = 50 * 1024 * 1024
 
@@ -189,8 +193,11 @@ def video_ke_stiker(sumber: str, tujuan_dir: str, mulai: float = 0.0) -> str:
             [
                 _FFMPEG, "-y",
                 "-ss", f"{max(mulai, 0):.2f}",
-                "-t", f"{DURASI_ANIM:.2f}",
+                # -t diletakkan setelah -i supaya pasti membatasi output. Kalau
+                # sebelum -i, sebagian input (GIF/WebP animasi) mengabaikannya
+                # dan hasilnya cuma 1 frame sehingga stiker tidak bergerak.
                 "-i", sumber,
+                "-t", f"{DURASI_ANIM:.2f}",
                 "-vf", f"fps={fps},scale={SISI}:{SISI}:"
                        "force_original_aspect_ratio=decrease:flags=lanczos,"
                        "format=yuv420p",
@@ -237,74 +244,132 @@ def buat_stiker(sumber: str, tujuan_dir: str, mulai: float = 0.0) -> tuple[str, 
 
 # ==================== DARI STIKER ====================
 
+def _filter_media(kotak: bool = False) -> str:
+    """Skala ke sisi terpanjang 512 dengan dimensi genap.
+
+    H.264 menolak lebar/tinggi ganjil, dan ``force_original_aspect_ratio``
+    bisa menghasilkan angka ganjil (mis. 512x333), jadi hasilnya dibulatkan
+    ke bawah ke bilangan genap.
+    """
+    dasar = f"scale={SISI}:{SISI}:force_original_aspect_ratio=decrease:flags=lanczos"
+    if kotak:
+        # Kanvas persegi 512x512 dengan latar transparan, supaya semua stiker
+        # keluar dengan ukuran sama tanpa memotong isinya.
+        return (
+            f"{dasar},scale=trunc(iw/2)*2:trunc(ih/2)*2,"
+            f"pad={SISI}:{SISI}:(ow-iw)/2:(oh-ih)/2:color=black@0"
+        )
+    return f"{dasar},scale=trunc(iw/2)*2:trunc(ih/2)*2"
+
+
+def _durasi(path: str) -> float:
+    """Durasi media dalam detik, 0.0 kalau tidak bisa dibaca."""
+    try:
+        return float(info_media(path)["durasi"] or 0.0)
+    except (StickerError, TypeError, ValueError):
+        return 0.0
+
+
 def stiker_ke_png(sumber: str, tujuan_dir: str) -> str:
     """Stiker (webp/webm) -> PNG frame pertama.
 
     WEBM VP9 dari Telegram tidak menyimpan alpha, sedangkan WEBP statis bisa.
     PNG keluarannya tetap RGBA supaya konsisten.
     """
+    if not tersedia():
+        raise StickerError("ffmpeg tidak ditemukan di server. Fitur ini butuh ffmpeg.")
+    if not os.path.isfile(sumber):
+        raise StickerError("Media tidak ditemukan. Kirim ulang stikernya.")
+
     keluaran = os.path.join(tujuan_dir, "hasil.png")
     hasil = _jalankan(
         [
             _FFMPEG, "-y",
             "-i", sumber,
-            "-vf", f"scale={SISI}:{SISI}:force_original_aspect_ratio=decrease:"
-                   "flags=lanczos,format=rgba",
+            "-vf", f"{_filter_media()},format=rgba",
             "-frames:v", "1",
+            "-update", "1",
             keluaran,
         ],
         timeout=120,
     )
     if hasil.returncode != 0:
         raise StickerError(_error_ffmpeg(hasil))
+    if not os.path.exists(keluaran) or os.path.getsize(keluaran) == 0:
+        raise StickerError("Konversi PNG gagal menghasilkan file.")
     return keluaran
 
 
 def stiker_ke_mp4(sumber: str, tujuan_dir: str) -> str:
-    """Stiker bergerak (webm/webp animasi) -> MP4 H.264.
+    """Stiker -> MP4 H.264 yang benar-benar bisa diputar.
+
+    Dua kasus dibedakan karena perilakunya berbeda:
+
+    - **Stiker bergerak** (WEBM VP9 / WEBP animasi): semua frame dipertahankan.
+    - **Stiker statis** (WEBP satu frame): frame tunggal itu diberi durasi
+      ``DURASI_MP4_STATIS``. Sebelumnya frame tunggal ikut di-encode apa adanya,
+      jadi hasilnya video 0,04 detik yang di Telegram tampak seperti gambar rusak.
 
     Latar transparan diratakan ke putih karena MP4 H.264 tidak mendukung alpha.
     """
+    if not tersedia():
+        raise StickerError("ffmpeg tidak ditemukan di server. Fitur ini butuh ffmpeg.")
+    if not os.path.isfile(sumber):
+        raise StickerError("Media tidak ditemukan. Kirim ulang stikernya.")
+
     keluaran = os.path.join(tujuan_dir, "hasil.mp4")
-    hasil = _jalankan(
-        [
+
+    # Ratakan alpha ke putih lalu encode H.264.
+    rata_putih = (
+        f"{_filter_media()},format=rgba,"
+        "split[isi][latar];[latar]drawbox=c=white:t=fill[bg];[bg][isi]overlay=shortest=1,"
+        "format=yuv420p"
+    )
+
+    if _durasi(sumber) <= 0.05:
+        # Stiker statis: putar frame tunggal selama beberapa detik.
+        perintah = [
+            _FFMPEG, "-y",
+            "-loop", "1",
+            "-t", f"{DURASI_MP4_STATIS:.2f}",
+            "-i", sumber,
+            "-vf", rata_putih,
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            "-r", str(FPS_ANIM),
+            "-an",
+            "-movflags", "+faststart",
+            keluaran,
+        ]
+    else:
+        perintah = [
             _FFMPEG, "-y",
             "-i", sumber,
-            # Ratakan alpha ke putih, lalu encode H.264
-            "-vf", f"scale={SISI}:{SISI}:force_original_aspect_ratio=decrease:"
-                   "flags=lanczos,"
-                   "format=rgba,color=white:size=512x512[bg];"
-                   "[bg][0:v]scale2ref[bg2][fg];[bg2][fg]overlay=shortest=1,"
-                   "format=yuv420p",
+            "-vf", rata_putih,
             "-c:v", "libx264",
             "-preset", "veryfast",
             "-crf", "23",
             "-pix_fmt", "yuv420p",
             "-an",
+            "-movflags", "+faststart",
             keluaran,
-        ],
-        timeout=240,
-    )
+        ]
+
+    hasil = _jalankan(perintah, timeout=240)
     if hasil.returncode != 0:
-        # Fallback: encode langsung tanpa alpha (webm tidak punya alpha)
-        hasil = _jalankan(
-            [
-                _FFMPEG, "-y",
-                "-i", sumber,
-                "-vf", f"scale={SISI}:{SISI}:force_original_aspect_ratio=decrease:"
-                       "flags=lanczos,format=yuv420p",
-                "-c:v", "libx264",
-                "-preset", "veryfast",
-                "-crf", "23",
-                "-pix_fmt", "yuv420p",
-                "-an",
-                keluaran,
-            ],
-            timeout=240,
-        )
+        # Fallback: encode langsung tanpa meratakan alpha (WEBM Telegram tidak
+        # menyimpan alpha, jadi langkah overlay tidak diperlukan).
+        fallback = [p for p in perintah]
+        idx = fallback.index("-vf") + 1
+        fallback[idx] = f"{_filter_media()},format=yuv420p"
+        hasil = _jalankan(fallback, timeout=240)
         if hasil.returncode != 0:
             raise StickerError(_error_ffmpeg(hasil))
 
+    if not os.path.exists(keluaran) or os.path.getsize(keluaran) == 0:
+        raise StickerError("Konversi MP4 gagal menghasilkan file.")
     return keluaran
 
 

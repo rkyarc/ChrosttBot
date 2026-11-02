@@ -58,6 +58,8 @@ Chrostt Bot adalah bot Telegram berbasis Python yang menggabungkan beberapa fitu
 | `/ai_off` | semua | Keluar dari mode AI |
 | `/ai_status` | semua | Status layanan AI & model aktif |
 | `/admin` | admin | Panel admin (statistik, pengguna, broadcast) |
+| `/toimg` | semua | Balas stiker → kirim PNG latar transparan |
+| `/tomp4` | semua | Balas stiker → kirim video MP4 |
 
 ## Struktur Project
 
@@ -291,6 +293,7 @@ CI di `.github/workflows/ci.yml` menjalankan keempat langkah itu di Python 3.10 
 - Kirim foto biasa ke chat untuk proses hapus background.
 - Kirim link Instagram, TikTok, Facebook, atau YouTube di chat; bot mendeteksi link otomatis dan link tidak akan dianggap pertanyaan AI.
 - Menu **Stiker**: tekan "Buat Stiker" lalu kirim foto/video, atau "Stiker → PNG/MP4" lalu kirim stiker.
+- Cara cepat tanpa menu: **balas** pesan stiker dengan `/toimg` (jadi PNG) atau `/tomp4` (jadi MP4).
 
 ## Stiker
 
@@ -300,19 +303,26 @@ Fitur stiker memakai **ffmpeg** (tidak butuh Pillow). Pastikan `ffmpeg` dan `ffp
 |---|---|---|
 | Foto → stiker | JPG/PNG/WebP | WebP statis 512×512, maks 512 KB |
 | Video → stiker | MP4/MOV/animation | **WEBM VP9** 3 detik, maks 256 KB |
-| Stiker statis → gambar | WebP | PNG frame pertama |
-| Stiker video → gambar | WEBM VP9 | PNG frame pertama |
-| Stiker bergerak → video | WEBM / WebP animasi | MP4 H.264 |
+| Stiker → PNG | WebP / WEBM VP9 | PNG RGBA frame pertama |
+| Stiker → MP4 | WebP statis | MP4 H.264 3 detik (frame tunggal diputar) |
+| Stiker → MP4 | WebP animasi / WEBM VP9 | MP4 H.264, semua frame dipertahankan |
+
+Dua jalur untuk membalik stiker:
+
+1. **Tombol** — setelah stiker diterima atau setelah stiker berhasil dibuat, tekan "Jadi PNG" / "Jadi MP4". Path stiker disimpan di sesi (TTL 30 menit), dan sesi ditutup setelah konversi berhasil.
+2. **`/toimg` & `/tomp4`** — balas pesan stiker dengan perintah itu. Tidak bergantung sesi, jadi tetap jalan untuk stiker lama yang dikirim berhari-hari lalu.
 
 Detail teknis:
 
 - **Video sticker Telegram wajib `.WEBM` codec VP9**, bukan animated WebP. Animated WebP ditolak `sendSticker`, jadi jalur video memakai `libvpx-vp9`.
 - Batas ukuran berbeda: stiker statis 512 KB, stiker video hanya **256 KB** (batas Telegram). Video dikompres bertahap (bitrate 420k → 160k, fps 30 → 15) sampai lolos.
 - Stiker Telegram ada 3 jenis dan ekstensinya beda: `.webp` (statis), `.webm` (video), `.tgs` (animasi vektor). `.tgs` berbasis Lottie-gzip dan **tidak bisa** diproses ffmpeg, jadi ditolak dengan pesan jelas.
-- Skala memakai `force_original_aspect_ratio=decrease`, jadi rasio asli tidak dipotong dan sisi terpanjang maksimal 512 px.
+- Skala memakai `force_original_aspect_ratio=decrease` lalu dibulatkan ke dimensi **genap** (`scale=trunc(iw/2)*2:trunc(ih/2)*2`), karena H.264 menolak lebar/tinggi ganjil.
+- Stiker statis tidak punya durasi. Saat dijadikan MP4, frame tunggal itu diulang selama **3 detik** (`-loop 1 -t 3`); tanpa ini hasilnya video 0,04 detik yang di Telegram tampak rusak.
 - Stiker Telegram selalu tanpa audio, jadi trek suara dibuang (`-an`).
-- Video dipotong 3 detik pertama; untuk stiker dari video yang lebih panjang, potongan bisa diatur lewat parameter `mulai` di service.
-- File sementara disimpan di folder `chrostt-stiker-*` dan dihapus setelah selesai, termasuk kalau terjadi error.
+- Video dipotong 3 detik pertama (`-t` diletakkan **setelah** `-i` supaya benar-benar membatasi output); untuk stiker dari video yang lebih panjang, potongan bisa diatur lewat parameter `mulai` di service.
+- File sementara disimpan di folder `chrostt-stiker-*`. Folder dibersihkan saat media baru dikirim, saat sesi dibatalkan, dan setelah konversi selesai. Sisa folder lebih tua dari 6 jam ikut disapu saat bot start.
+- Setelah tombol konversi dipakai, `path` sesi diperbarui ke **stiker hasil konversi**, bukan media asli. Tanpa itu "Jadi PNG" menghasilkan PNG dari foto sumber.
 
 ## YouTube
 
