@@ -51,6 +51,8 @@ PERINTAH_UMUM = [
     BotCommand("ai_off", "Keluar dari mode AI"),
     BotCommand("ai_status", "Cek status AI"),
     BotCommand("del", "Hapus pesan/media di chat"),
+    BotCommand("toimg", "Balas stiker → jadi PNG"),
+    BotCommand("tomp4", "Balas stiker → jadi MP4"),
     BotCommand("id", "Lihat ID Telegram kamu"),
     BotCommand("help", "Bantuan & daftar perintah"),
 ]
@@ -117,6 +119,12 @@ def run_bot():
         log.warning("Gagal membersihkan prompt /play lama", exc_info=True)
 
     from bot.services.sticker import tersedia as ffmpeg_tersedia
+
+    # Sisa folder temp dari proses sebelumnya dibersihkan di awal: sesi stiker
+    # berumur 30 menit, tetapi bot bisa mati sebelum sempat menghapusnya.
+    from bot.handlers.sticker import _buang_folder_lama
+
+    _buang_folder_lama()
 
     log.info("Chrostt Bot siap (AI: %s, model: %s, admin: %s, ffmpeg: %s)",
              "aktif" if config.AI_ENABLED else "nonaktif",
