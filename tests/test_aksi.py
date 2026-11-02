@@ -331,14 +331,26 @@ class RoutingServiceTest(unittest.TestCase):
 
 
 class HandlerTest(unittest.TestCase):
+    """Handler AI yang merebut foto ber-caption.
+
+    Config AI dipaksa siap di setUp: tanpa itu, hasil test bergantung pada isi
+    `.env` lokal. Di mesin developer AI_ENABLED True, di CI tidak ada `.env` sama
+    sekali, sehingga ``direbut_ai`` selalu False dan test lulus secara palsu.
+    """
+
     def setUp(self):
         from bot.handlers import ai as h
 
         self.h = h
+        self._asli = (config.AI_ENABLED, config.AI_API_KEY, config.AI_AKSI_BOT)
+        config.AI_ENABLED = True
+        config.AI_API_KEY = "kunci-uji"
+        config.AI_AKSI_BOT = True
         h.AI_SESSIONS.clear(7)
         h.play_mode.tutup(7)
 
     def tearDown(self):
+        config.AI_ENABLED, config.AI_API_KEY, config.AI_AKSI_BOT = self._asli
         self.h.AI_SESSIONS.clear(7)
         self.h.play_mode.tutup(7)
 
@@ -418,6 +430,47 @@ class HandlerTest(unittest.TestCase):
         aksi.simpan_media(7, "foto", "punya-a", 100, user_id=1)
         self.assertIsNone(aksi.ambil_media(7, 2))
         self.assertIsNotNone(aksi.ambil_media(7, 1))
+
+
+class KonfigurasiTanpaEnvTest(unittest.TestCase):
+    """Kondisi CI: tidak ada `.env`, jadi AI_ENABLED default False.
+
+    Test di kelas HandlerTest dulu hanya lulus di mesin developer karena
+    ``config.AI_ENABLED`` ikut terisi dari `.env` lokal. Di CI nilainya False,
+    ``direbut_ai`` langsung mengembalikan False, dan tiga test jadi merah.
+    Kelas ini mengunci perilaku pada kondisi tersebut.
+    """
+
+    def setUp(self):
+        from bot.handlers import ai as h
+
+        self.h = h
+        self._asli = (config.AI_ENABLED, config.AI_API_KEY, config.AI_AKSI_BOT)
+        config.AI_ENABLED = False
+        config.AI_API_KEY = ""
+        config.AI_AKSI_BOT = False
+        h.AI_SESSIONS.clear(7)
+
+    def tearDown(self):
+        config.AI_ENABLED, config.AI_API_KEY, config.AI_AKSI_BOT = self._asli
+        self.h.AI_SESSIONS.clear(7)
+
+    def test_tanpa_ai_foto_bercaption_tidak_direbut(self):
+        self.h.AI_SESSIONS.set(7, {"riwayat": [], "akses": "user"})
+        pesan = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=7),
+            caption="hapus background ini",
+            photo=[types.SimpleNamespace(file_id="f1", file_size=100)],
+        )
+        self.assertFalse(self.h.direbut_ai(pesan))
+
+    def test_tanpa_ai_caption_perintah_ai_juga_tidak_direbut(self):
+        pesan = types.SimpleNamespace(
+            chat=types.SimpleNamespace(id=7),
+            caption="/ai hapus background",
+            photo=[types.SimpleNamespace(file_id="f1", file_size=100)],
+        )
+        self.assertFalse(self.h.direbut_ai(pesan))
 
 
 if __name__ == "__main__":
