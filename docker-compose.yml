@@ -1,0 +1,17 @@
+services:
+  bot:
+    build: .
+    image: chrosttbot:latest
+    container_name: chrosttbot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Database riwayat + registri pengguna harus bertahan saat container dibuat ulang
+      - ./data:/app/data
+    # Bot memakai long polling, jadi tidak ada port yang perlu diekspos
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

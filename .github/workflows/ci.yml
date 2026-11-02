@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [staging, "dev/**"]
+  pull_request:
+    branches: [main, staging]
+
+jobs:
+  cek:
+    name: Lint, compile, test (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Pasang dependency
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt ruff
+
+      - name: Ruff (error nyata saja)
+        run: ruff check bot main.py config.py --select F,E9
+
+      - name: Compile semua modul
+        run: python -m compileall -q bot main.py config.py
+
+      - name: Import handler (deteksi error import)
+        run: python -c "import bot.handlers"
+        env:
+          TELEGRAM_TOKEN: "0:test-token"
+
+      - name: Unit test
+        run: python -m unittest discover -s tests -t . -v
+        env:
+          TELEGRAM_TOKEN: "0:test-token"
+          RIWAYAT_AKTIF: "false"

@@ -51,6 +51,18 @@ CREATE TABLE IF NOT EXISTS state (
     nilai  TEXT NOT NULL,
     waktu  REAL NOT NULL DEFAULT 0
 );
+
+-- Registri pengguna untuk panel admin & broadcast. Disimpan di disk supaya
+-- daftar tidak hilang setiap bot restart.
+CREATE TABLE IF NOT EXISTS pengguna (
+    user_id   INTEGER PRIMARY KEY,
+    nama      TEXT NOT NULL DEFAULT '',
+    username  TEXT NOT NULL DEFAULT '',
+    pertama   REAL NOT NULL DEFAULT 0,
+    terakhir  REAL NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_pengguna_terakhir ON pengguna(terakhir);
 """
 
 
@@ -292,6 +304,49 @@ class RiwayatStore:
                 (f"{prefix}%",),
             ).fetchall()
             return [(r["kunci"], r["nilai"]) for r in baris]
+
+    # ================== PENGGUNA ==================
+    # Registri pengguna dipakai panel admin dan broadcast. Disimpan di SQLite
+    # supaya tetap ada setelah restart (sebelumnya hanya dict di memori).
+
+    def simpan_pengguna(self, user_id: int, nama: str = "", username: str = "") -> None:
+        with self._lock:
+            conn = self._koneksi()
+            now = time.time()
+            conn.execute(
+                "INSERT INTO pengguna (user_id, nama, username, pertama, terakhir) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET "
+                "  nama = CASE WHEN excluded.nama <> '' THEN excluded.nama ELSE nama END, "
+                "  username = CASE WHEN excluded.username <> '' "
+                "                  THEN excluded.username ELSE username END, "
+                "  terakhir = excluded.terakhir",
+                (int(user_id), str(nama or "")[:80], str(username or "")[:40], now, now),
+            )
+            conn.commit()
+
+    def daftar_pengguna(self) -> list[dict]:
+        """Semua pengguna terdaftar, terbaru dulu."""
+        with self._lock:
+            conn = self._koneksi()
+            baris = conn.execute(
+                "SELECT user_id, nama, username, terakhir FROM pengguna "
+                "ORDER BY terakhir DESC"
+            ).fetchall()
+            return [
+                {
+                    "id": r["user_id"],
+                    "nama": r["nama"] or "",
+                    "username": r["username"] or "",
+                    "terakhir": r["terakhir"] or 0,
+                }
+                for r in baris
+            ]
+
+    def jumlah_pengguna(self) -> int:
+        with self._lock:
+            conn = self._koneksi()
+            return conn.execute("SELECT COUNT(*) FROM pengguna").fetchone()[0]
 
     # ================== HELPER ==================
 

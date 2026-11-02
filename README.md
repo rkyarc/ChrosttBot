@@ -36,7 +36,7 @@ Chrostt Bot adalah bot Telegram berbasis Python yang menggabungkan beberapa fitu
 - Download foto, carousel, dan video Instagram.
 - Download video TikTok (tanpa/dengan watermark), foto slideshow, dan audio.
 - Download video Facebook publik dalam kualitas HD atau SD.
-- Download video YouTube (dibatasi 50MB sesuai limit Bot API).
+- Download video YouTube; file di atas 50MB dikirim sebagai tautan unduhan.
 - **`/play`** — aktifkan mode cari YouTube, lalu kirim judulnya tanpa command.
 - **`/play <judul>`** — cari di YouTube langsung, lalu unduh video MP4 atau audio MP3.
 - **Stiker** — ubah foto/video jadi stiker Telegram, dan stiker jadi PNG/MP4 (butuh ffmpeg).
@@ -62,22 +62,30 @@ Chrostt Bot adalah bot Telegram berbasis Python yang menggabungkan beberapa fitu
 
 ```text
 ChrosttBot/
+├── .dockerignore
 ├── .env.example
+├── .github/workflows/ci.yml   # lint + compile + test
 ├── config.py
 ├── dev.py
+├── docker-compose.yml
+├── Dockerfile
+├── LICENSE
 ├── main.py
 ├── pyproject.toml
 ├── README.md
 ├── requirements.txt
+├── SECURITY.md
+├── tests/                     # unit test (unittest, tanpa jaringan)
 └── bot/
     ├── __init__.py          # instance TeleBot (tg_bot)
     ├── admin.py             # parsing ADMIN_IDS, cek akses, data pengguna
     ├── ai_prompt.py         # system prompt & aturan Chrostt AI
+    ├── batas_laju.py        # pembatas laju per pengguna
     ├── keyboards.py         # semua inline keyboard
     ├── play_mode.py         # siklus mode tunggu judul /play
-    ├── riwayat.py           # penyimpanan riwayat AI (SQLite)
+    ├── riwayat.py           # penyimpanan riwayat AI + registri pengguna (SQLite)
     ├── sessions.py          # cache sesi per chat (TTL)
-    ├── telegram_io.py       # operasi Telegram yang tahan error
+    ├── telegram_io.py       # operasi Telegram yang tahan error + retry flood
     ├── utils.py             # helper format, escape HTML, konversi markdown
     ├── handlers/
     │   ├── __init__.py
@@ -85,6 +93,7 @@ ChrosttBot/
     │   ├── ai.py
     │   ├── background.py
     │   ├── facebook.py
+    │   ├── gerbang.py       # gerbang batas laju untuk handler
     │   ├── hapus.py
     │   ├── idx_news.py
     │   ├── instagram.py
@@ -92,6 +101,7 @@ ChrosttBot/
     │   ├── saham.py
     │   ├── sticker.py
     │   ├── tiktok.py
+    │   ├── unduhan.py
     │   └── youtube.py
     └── services/
         ├── __init__.py
@@ -99,6 +109,7 @@ ChrosttBot/
         ├── diagnostik.py
         ├── facebook.py
         ├── idx_news.py
+        ├── media.py
         ├── removebg.py
         ├── saham.py
         ├── saveinta.py
@@ -114,7 +125,8 @@ ChrosttBot/
 - `main.py` mendaftarkan semua handler, menyetel daftar perintah bot, lalu menjalankan `tg_bot.infinity_polling()` dengan retry dan backoff otomatis.
 - `bot/__init__.py` membuat instance bot Telegram (`tg_bot`).
 - `bot/sessions.py` menyimpan sesi per chat (TikTok, Facebook, AI) dengan TTL, supaya memori tidak menumpuk.
-- `bot/admin.py` membaca `ADMIN_IDS` dari `.env`, menyediakan cek akses admin, dan mencatat pengguna untuk broadcast.
+- `bot/admin.py` membaca `ADMIN_IDS` dari `.env`, menyediakan cek akses admin, dan mencatat pengguna ke SQLite untuk panel & broadcast.
+- `bot/batas_laju.py` membatasi aksi mahal per pengguna (unduh, stiker, AI) memakai jendela geser.
 - `bot/ai_prompt.py` menyimpan system prompt Chrostt AI yang membatasi jawaban pada lingkup bot.
 - `bot/services/*` menangani komunikasi ke sumber eksternal (gateway AI, rembg, Yahoo Finance, Google News, saveinta, tikwm, fdown, yt-dlp).
 - `bot/handlers/*` menangani interaksi Telegram: menu, callback tombol, dan pengiriman media.
@@ -124,17 +136,29 @@ ChrosttBot/
 
 Hal-hal yang biasanya membuat bot terasa "kasar" ditangani terpusat:
 
-- `bot/telegram_io.py` membungkus `send_message`, `edit_message_text`, `delete_message`, dan `answer_callback_query`. Error rutin tidak lagi jadi traceback: `message is not modified` dianggap sukses, pesan yang sudah hilang otomatis dikirim ulang, callback kedaluwarsa diabaikan, dan flood limit hanya dicatat di log.
+- `bot/telegram_io.py` membungkus `send_message`, `edit_message_text`, `delete_message`, dan `answer_callback_query`. Error rutin tidak lagi jadi traceback: `message is not modified` dianggap sukses, pesan yang sudah hilang otomatis dikirim ulang, callback kedaluwarsa diabaikan, dan **flood limit diulang** setelah menunggu `retry_after` dari Telegram (maksimal 2 kali percobaan).
 - `bot/decorators.py` (`@aman_handler`) menangkap error handler per fitur. Pengguna menerima pesan singkat yang bisa ditindaklanjuti dengan kode handler, traceback lengkap hanya ke log.
+- `bot/batas_laju.py` + `bot/handlers/gerbang.py` membatasi aksi mahal per pengguna: 8 unduhan/menit, 10 konversi stiker/menit, 20 pertanyaan AI/menit. Admin tidak dibatasi untuk AI.
+- Broadcast admin berjalan di thread terpisah dengan progres `n/total`, jadi worker telebot tidak tertahan dan admin tetap bisa memakai bot.
 - Semua handler jaringan punya pesan kegagalan spesifik (ffmpeg tidak ada, video terlalu besar, halaman diblokir) alih-alih error mentah.
 - Mode interaktif selalu punya jalan keluar eksplisit: `batal`, perintah lain, tombol keluar, atau TTL. Tidak ada mode yang bisa "nyangkut" tanpa batas.
 
 ## Persyaratan
 
 - Python `>=3.10`
-- ffmpeg di PATH (wajib untuk fitur Stiker)
+- ffmpeg di PATH (wajib untuk fitur Stiker dan menggabung video+audio YouTube)
 - Token bot Telegram dari BotFather
-- Poetry (opsional, bisa juga pakai pip)
+- Poetry (opsional, bisa juga pakai pip atau Docker)
+
+## Menjalankan dengan Docker
+
+```bash
+cp .env.example .env      # isi TELEGRAM_TOKEN
+docker compose up -d --build
+docker compose logs -f    # lihat log bot
+```
+
+Image sudah memuat `ffmpeg`, berjalan sebagai user non-root, dan memakai `HEALTHCHECK`. Folder `./data` di-mount ke `/app/data` supaya database riwayat dan registri pengguna tetap ada saat container dibuat ulang.
 
 ## Setup
 
@@ -211,6 +235,38 @@ python dev.py
 ```
 
 Mode ini memakai `watchfiles`, mengabaikan folder `.venv`, `__pycache__`, dan `downloads`, serta mematikan proses lama sebelum restart agar tidak bentrok polling.
+
+## Test & CI
+
+Test memakai `unittest` bawaan Python, tanpa dependency tambahan dan **tanpa jaringan** — semua panggilan Telegram dan layanan luar di-stub.
+
+```bash
+poetry run python -m unittest discover -s tests -t . -v
+```
+
+Cakupan saat ini:
+
+| Berkas | Yang diuji |
+|---|---|
+| `tests/test_utils.py` | escape HTML, pemotongan teks/HTML (tag tetap seimbang), konversi markdown |
+| `tests/test_sessions.py` | TTL sesi, batas entri, isolasi antar chat |
+| `tests/test_riwayat.py` | simpan/baca riwayat, pemangkasan, hapus, state, registri pengguna |
+| `tests/test_batas_laju.py` | kuota per pengguna, kuota per jenis aksi, perilaku `periksa()` |
+| `tests/test_telegram_io.py` | parsing `retry_after`, retry flood, menyerah setelah batas |
+| `tests/test_media.py` | batas 50MB, isi pesan tautan unduhan, tombol alternatif |
+| `tests/test_unduhan.py` | keempat downloader mengirim tautan (bukan error) saat file besar, dan batas laju benar-benar menghentikan unduhan |
+| `tests/test_admin.py` | cek admin dari `from_user`, penolakan di grup, pencatatan pengguna |
+| `tests/test_dependency.py` | `pyproject.toml` dan `requirements.txt` tetap sinkron |
+
+Langkah verifikasi lengkap (sama seperti yang dijalankan CI):
+
+```bash
+poetry run ruff check bot main.py config.py tests --select F,E9
+poetry run python -m compileall -q bot main.py config.py
+poetry run python -m unittest discover -s tests -t .
+```
+
+CI di `.github/workflows/ci.yml` menjalankan keempat langkah itu di Python 3.10 dan 3.12 untuk setiap push ke `dev/**`/`staging` dan setiap PR ke `main`/`staging`.
 
 ## Cara Pakai
 
@@ -296,7 +352,7 @@ Detail teknis:
 - Format: `bestvideo[filesize<50M][ext=mp4]+bestaudio[ext=m4a]`, lalu `merge_output_format=mp4`. Ada 3 tingkat fallback kalau batas ukuran tidak bisa diprediksi.
 - Audio diekstrak ke MP3 128 kbps lewat post-processor `FFmpegExtractAudio`.
 - **Durasi dicek sebelum unduh** (`skip_download=True`). Video >1 jam ditolak dalam ~2 detik, bukan setelah mengunduh ratusan MB.
-- Batas 50MB (limit Bot API) dijaga dua lapis: `max_filesize` di yt-dlp dan pengecekan ulang setelah unduhan.
+- Batas 50MB (limit Bot API) dijaga dua lapis: `max_filesize` di yt-dlp dan pengecekan ulang setelah unduhan. Kalau file tetap lebih besar (atau video >1 jam), bot tidak menampilkan error melainkan mengirim **tautan unduhan** `youtu.be`/`watch?v=` supaya bisa diambil lewat browser.
 - Live stream berjalan ditolak lewat `match_filter=!is_live`.
 - Folder sementara dihapus di blok `finally`, termasuk saat download atau upload gagal.
 - Error yt-dlp diterjemahkan ke bahasa manusia: video privat, tidak tersedia, butuh login umur, diblokir wilayah, timeout, dan ffmpeg hilang.
@@ -339,17 +395,19 @@ Batasan Telegram yang tidak bisa dilanggar bot:
 
 ## Logging Aktivitas
 
-Bot mencetak setiap command, pesan teks, dan penekanan tombol ke console. Diaktifkan lewat `.env`:
+Bot bisa mencetak setiap command, pesan teks, dan penekanan tombol ke console. Karena isi pesan pengguna adalah data pribadi, fitur ini **mati secara default** dan harus dinyalakan sadar-sadar saat debugging:
 
 ```env
-LOG_USER_MESSAGES=true
+LOG_USER_MESSAGES=false
 LOG_USER_MEDIA=false
 ```
 
 | Variabel | Default | Fungsi |
 |---|---|---|
-| `LOG_USER_MESSAGES` | `true` | Cetak command, teks, dan callback ke console |
+| `LOG_USER_MESSAGES` | `false` | Cetak command, teks, dan callback ke console |
 | `LOG_USER_MEDIA` | `false` | Ikut cetak pesan berisi media (foto/video/stiker) |
+
+Aktifkan hanya sementara di mesin development. Di server produksi biarkan `false` supaya percakapan pengguna tidak tersimpan di log.
 
 Contoh output:
 
@@ -391,7 +449,7 @@ Perilaku saat handler gagal:
 - Untuk callback, `answerCallbackQuery` dipanggil dulu agar spinner tidak menggantung.
 - Kalau chat tidak bisa dihubungi, cukup dicatat di log tanpa melempar error baru.
 
-Handler yang sudah punya `try/except` sendiri (TikTok, YouTube, stiker, hapus, AI, Instagram, Facebook, background) **tidak** dibungkus guard agar pesan error spesifiknya tidak tertimpa. Ada test `verify_try_own.py` yang memaksa API gagal untuk memastikan error di handler-handler itu benar-benar tertangkap.
+Handler yang sudah punya `try/except` sendiri (TikTok, YouTube, stiker, hapus, AI, Instagram, Facebook, background) **tidak** dibungkus guard agar pesan error spesifiknya tidak tertimpa. Konsekuensinya tidak ada jaring pengaman otomatis: kalau `except` di handler itu melewatkan jenis error tertentu, pengguna tidak menerima balasan apa pun. Repo ini belum punya test otomatis; verifikasi error masih manual dengan stub `send_message`/`edit_message_text` seperti di bagian **Verifikasi**.
 
 ## Chrostt AI
 
@@ -493,8 +551,8 @@ Yang didapat admin:
 - Tombol **🛡️ Panel Admin** di menu utama (pengguna biasa tidak melihatnya).
 - `/admin` — panel admin, menampilkan ID, status, dan daftar admin aktif.
 - 📊 **Statistik** — uptime, jumlah pengguna tercatat, status AI dan model.
-- 👥 **Pengguna** — 20 pengguna terakhir beserta ID Telegram.
-- 📢 **Broadcast** — kirim satu pesan HTML ke semua pengguna yang pernah chat; ada preview, konfirmasi, dan laporan sukses/gagal. Draft kedaluwarsa 10 menit.
+- 👥 **Pengguna** — 20 pengguna terakhir beserta ID Telegram (dibaca dari SQLite, jadi bertahan setelah restart).
+- 📢 **Broadcast** — kirim satu pesan HTML ke semua pengguna yang pernah chat; ada preview, konfirmasi, progres `n/total`, dan laporan sukses/gagal. Berjalan di thread terpisah sehingga bot tetap responsif. Draft kedaluwarsa 10 menit.
 - Perintah `/admin` otomatis muncul di menu `/` hanya untuk chat admin (BotCommandScopeChat).
 
 Pengamanan: setiap aksi admin dicek ulang dari `from_user.id` (bukan `chat.id`), jadi menambah bot ke grup tidak memberi siapa pun akses admin. Pengguna non-admin yang mencoba `/admin` atau tombol panel mendapat pesan "Akses ditolak".
@@ -504,10 +562,13 @@ Pengamanan: setiap aksi admin dicek ulang dari `from_user.id` (bukan `chat.id`),
 - `.env` berisi `TELEGRAM_TOKEN` dan kredensial AI; file ini sudah masuk `.gitignore`, jangan di-commit.
 - `.gitignore` sudah mencakup `.env*`, virtualenv, `__pycache__`, cache tooling, `downloads/`, `.handler-saves/` (state pyTelegramBotAPI), log, serta folder editor/OS.
 - Fitur hapus background memakai API rembg gratis, jadi tidak perlu `REMOVE_BG_API_KEY`.
-- Batas upload Bot API Telegram adalah 50MB; video lebih besar akan ditolak dengan pesan/alternatif link.
+- Batas upload Bot API Telegram adalah 50MB. File di atas batas itu (Instagram, TikTok, Facebook, YouTube) tidak lagi berakhir sebagai error: bot mengirim pesan **LINK UNDUHAN** berisi tautan sumber, ukuran file, dan tombol pembuka browser.
+- Aksi mahal dibatasi per pengguna (unduhan, stiker, AI). Pesan penolakan menyebut sisa waktu tunggu, jadi pengguna tidak bingung.
+- Registri pengguna (untuk panel & broadcast) disimpan di SQLite, bukan memori — daftar tidak hilang saat restart.
+- Kebijakan keamanan dan data ada di `SECURITY.md`; kode berlisensi MIT (`LICENSE`).
 - Kode saham Indonesia ditulis tanpa `.JK` saat input, misalnya `BBCA`.
 - IHSG diambil melalui kode `^JKSE`.
-- Dependensi utama ada di `pyproject.toml` (dikunci di `poetry.lock`), `requirements.txt` disediakan untuk instalasi berbasis pip.
+- Dependensi utama ada di `pyproject.toml` (dikunci di `poetry.lock`), `requirements.txt` disediakan untuk instalasi berbasis pip dan Docker. `tests/test_dependency.py` menjaga keduanya tetap sinkron.
 - `requires-python` diset `>=3.10`; lock dibuat dengan Python 3.12.
 - Daftar perintah di menu `/` didaftarkan ulang setiap bot start; perintah admin memakai scope per chat sehingga tidak terlihat pengguna biasa.
 
