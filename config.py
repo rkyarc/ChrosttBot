@@ -42,8 +42,10 @@ def _env_bool(nama: str, default: bool = False) -> bool:
     return nilai not in ("0", "false", "no", "off")
 
 
-# Cetak setiap pesan/command user ke console
-LOG_USER_MESSAGES = _env_bool("LOG_USER_MESSAGES", True)
+# Cetak setiap pesan/command user ke console.
+# Default false: isi pesan pengguna adalah data pribadi, jadi pencatatan harus
+# diaktifkan sadar-sadar saat debug, bukan otomatis di produksi.
+LOG_USER_MESSAGES = _env_bool("LOG_USER_MESSAGES", False)
 
 # Ikut cetak pesan berisi media (foto/video/stiker), bukan hanya teks
 LOG_USER_MEDIA = _env_bool("LOG_USER_MEDIA", False)

@@ -7,6 +7,8 @@ import re
 from telebot import types
 
 from bot import play_mode, tg_bot, telegram_io as tg_io
+from bot.handlers.gerbang import lolos
+from bot.handlers.unduhan import kirim_tautan_unduh
 from bot.keyboards import (
     markup_kembali_menu_utama,
     markup_youtube_daftar,
@@ -17,6 +19,7 @@ from bot.services import youtube as YT
 from bot.sessions import SessionStore
 from bot.utils import escape_html
 from bot.decorators import aman_handler
+from bot.services.media import MediaTerlaluBesar
 
 log = logging.getLogger("chrosttbot.youtube")
 
@@ -110,8 +113,8 @@ def menu_youtube(call):
         "• Audio MP3 dari video yang sama\n"
         "• Shorts, live replay, youtu.be\n\n"
         "<b>Batas</b>\n"
-        "• Maksimal 50MB (limit Bot API Telegram)\n"
-        "• Video maksimal 1 jam\n"
+        "• File di bawah 50MB dikirim ke chat\n"
+        "• File lebih besar atau video >1 jam: bot kirim tautan unduhan\n"
         "• Live stream berjalan tidak didukung",
         call.message.chat.id,
         call.message.message_id,
@@ -377,6 +380,9 @@ def proses_link_youtube(message):
         )
         return
 
+    if not lolos(message, "unduh"):
+        return
+
     status = _kirim_status(chat_id, "🔍 <i>Mengambil info video...</i>")
 
     try:
@@ -590,6 +596,9 @@ def unduh_youtube(call):
         )
         return
 
+    if not lolos(call, "unduh"):
+        return
+
     mau_audio = call.data == "yt_audio"
     tg_bot.answer_callback_query(
         call.id, "⏳ Mengunduh audio..." if mau_audio else "⏳ Mengunduh video..."
@@ -636,6 +645,19 @@ def unduh_youtube(call):
 
         tg_bot.delete_message(chat_id, status.message_id)
 
+    except MediaTerlaluBesar as e:
+        # Samakan dengan downloader lain: satu format pesan tautan, bukan
+        # header khusus, supaya pengguna melihat tampilan yang konsisten.
+        tg_io.hapus(chat_id, status.message_id)
+        kirim_tautan_unduh(
+            chat_id,
+            e.url or sesi["url"],
+            ukuran=e.ukuran_bytes,
+            jenis="file YouTube",
+            judul=sesi.get("judul", ""),
+            catatan=e.catatan,
+            alternatif=[("▶️ Buka di YouTube", sesi["url"])],
+        )
     except YT.YouTubeDownloadError as e:
         _edit_status(
             chat_id,

@@ -4,7 +4,10 @@ from io import BytesIO
 from telebot import types
 
 from bot import tg_bot
+from bot.handlers.gerbang import lolos
+from bot.handlers.unduhan import kirim_tautan_unduh
 from bot.keyboards import markup_download_tiktok, markup_kembali_menu_utama
+from bot.services.media import MediaTerlaluBesar
 from bot.services.tiktok import TikTokScraperError, extract_tiktok, unduh_media
 from bot.sessions import SessionStore
 from bot.utils import escape_html
@@ -13,9 +16,6 @@ from bot.decorators import aman_handler
 
 # Cache hasil ekstraksi per chat, supaya tombol callback bisa mengambil datanya
 TIKTOK_SESSIONS = SessionStore()
-
-# Batas upload Bot API Telegram = 50MB
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 TIKTOK_URL_PATTERN = re.compile(
     r"https?://(?:vm|vt|www|m)?\.?tiktok\.com/[^\s]+",
@@ -29,6 +29,9 @@ def proses_link_tiktok(message):
     """Otomatis menangkap pesan yang berisi link TikTok."""
     chat_id = message.chat.id
     url_tiktok = TIKTOK_URL_PATTERN.search(message.text).group(0)
+
+    if not lolos(message, "unduh"):
+        return
 
     pesan_loading = tg_bot.send_message(
         chat_id,
@@ -63,7 +66,9 @@ def proses_link_tiktok(message):
             f"• ❤️ {_angka(stats.get('likes'))} suka\n"
             f"• 🎵 {escape_html(_truncate(music['title'], 60))}\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "📥 <b>Pilih format — media dikirim langsung ke chat:</b>"
+            "📥 <b>Pilih format</b>\n"
+            "<i>File di bawah 50MB dikirim ke chat; di atasnya bot memberi "
+            "tautan unduhan.</i>"
         )
 
         tg_bot.edit_message_text(
@@ -117,6 +122,17 @@ def aksi_download_tiktok(call):
     music = info["music"]
     author = info["author"]
 
+    if not lolos(call, "unduh"):
+        return
+
+    # Media >50MB tetap punya tautan: pengguna tinggal klik, bukan error.
+    tautan = {
+        "tiktok_nowm": content.get("video_no_wm"),
+        "tiktok_wm": content.get("video_wm"),
+        "tiktok_photos": (content.get("images") or [None])[0],
+        "tiktok_music": music.get("url"),
+    }
+
     try:
         if call.data == "tiktok_photos":
             images = content.get("images", [])
@@ -143,6 +159,14 @@ def aksi_download_tiktok(call):
         else:
             tg_bot.answer_callback_query(call.id)
 
+    except MediaTerlaluBesar as e:
+        kirim_tautan_unduh(
+            chat_id,
+            e.url or tautan.get(call.data) or "",
+            ukuran=e.ukuran_bytes,
+            jenis="media",
+            judul=content.get("title", ""),
+        )
     except TikTokScraperError as e:
         tg_bot.send_message(
             chat_id,
@@ -190,17 +214,7 @@ def kirim_video(chat_id, url, title, author):
         tg_bot.send_message(chat_id, "❌ Link video tidak tersedia untuk media ini.")
         return
 
-    data = unduh_media(url)
-
-    if len(data) > MAX_UPLOAD_BYTES:
-        tg_bot.send_message(
-            chat_id,
-            f"⚠️ Ukuran video {len(data) // 1048576}MB melebihi batas upload Telegram (50MB).\n\n"
-            f"Gunakan link langsung ini:\n{url}",
-            disable_web_page_preview=True,
-        )
-        return
-
+    data = unduh_media(url)  # MediaTerlaluBesar ditangani pemanggil
     caption = f"🎬 {_truncate(title, 900)}\n\n👤 @{author['username']} • via Chrostt Bot"
     tg_bot.send_video(chat_id, BytesIO(data), caption=caption)
 
@@ -216,13 +230,10 @@ def kirim_foto(chat_id, images):
             # Fallback: download manual kalau Telegram gagal fetch URL
             media = []
             for url in chunk:
-                data = unduh_media(url)
-                if len(data) > MAX_UPLOAD_BYTES:
-                    tg_bot.send_message(
-                        chat_id,
-                        f"⚠️ Foto melebihi batas upload Telegram (50MB).\n\nURL langsung:\n{url}",
-                        disable_web_page_preview=True,
-                    )
+                try:
+                    data = unduh_media(url)
+                except MediaTerlaluBesar as e:
+                    kirim_tautan_unduh(chat_id, url, ukuran=e.ukuran_bytes, jenis="foto")
                     continue
                 media.append(types.InputMediaPhoto(BytesIO(data)))
             if media:
@@ -235,17 +246,7 @@ def kirim_musik(chat_id, music):
         tg_bot.send_message(chat_id, "❌ Audio tidak tersedia untuk media ini.")
         return
 
-    data = unduh_media(music["url"])
-
-    if len(data) > MAX_UPLOAD_BYTES:
-        tg_bot.send_message(
-            chat_id,
-            "⚠️ Ukuran audio melebihi batas upload Telegram (50MB).\n\n"
-            f"URL langsung:\n{music['url']}",
-            disable_web_page_preview=True,
-        )
-        return
-
+    data = unduh_media(music["url"])  # MediaTerlaluBesar ditangani pemanggil
     tg_bot.send_audio(
         chat_id,
         BytesIO(data),

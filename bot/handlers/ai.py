@@ -2,7 +2,7 @@ import logging
 import re
 import threading
 
-from bot import play_mode, tg_bot
+from bot import batas_laju, play_mode, tg_bot
 from bot.admin import apakah_admin
 from bot.ai_prompt import (
     MAKS_KARAKTER_RIWAYAT,
@@ -25,7 +25,7 @@ from bot.services.ai import (
     web_aktif,
 )
 from bot.sessions import SessionStore
-from bot.utils import ke_telegram_html, potong_html, strip_html
+from bot.utils import escape_html, ke_telegram_html, potong_html, strip_html
 from bot.decorators import aman_handler
 
 log = logging.getLogger("chrosttbot.ai")
@@ -268,6 +268,23 @@ def _jawab(
         return
 
     admin = apakah_admin(user_id)
+
+    # AI adalah fitur paling mahal (token berbayar). Admin tidak dibatasi supaya
+    # tetap bisa menguji; pengguna biasa dibatasi per menit.
+    if not admin:
+        try:
+            batas_laju.cek(user_id, "ai")
+        except batas_laju.BatasTerlampaui as e:
+            tg_bot.send_message(
+                chat_id,
+                "⏳ <b>Batas tercapai</b>\n\n"
+                f"{e.pesan}\n\n"
+                f"<i>Sisa waktu tunggu sekitar {e.detik} detik.</i>",
+                parse_mode="HTML",
+                reply_markup=markup_ai(),
+            )
+            return
+
     sesi = _sesi(chat_id, _akses(user_id))
 
     # Kunci per chat: riwayat dibaca & ditulis di dalam lock supaya tidak tabrakan
@@ -282,7 +299,8 @@ def _jawab(
         except AIError as e:
             tg_bot.send_message(
                 chat_id,
-                f"⚠️ <b>AI tidak bisa menjawab sekarang</b>\n\n{e}",
+                "⚠️ <b>AI tidak bisa menjawab sekarang</b>\n\n"
+                f"{escape_html(str(e))}",
                 parse_mode="HTML",
                 reply_markup=markup_ai(),
             )

@@ -7,6 +7,8 @@ import html as _html
 import urllib.parse
 import requests
 
+from bot.services.media import BATAS_UPLOAD_BYTES, MediaTerlaluBesar
+
 log = logging.getLogger("chrosttbot.saveinta")
 
 
@@ -305,8 +307,9 @@ class SaveInta:
         return path
 
     @staticmethod
-    def unduh_media(url, timeout=120):
-        """Download media Instagram sebagai bytes."""
+    def unduh_media(url, timeout=120, max_bytes=None):
+        """Download media Instagram sebagai bytes, berhenti kalau terlalu besar."""
+        batas = max_bytes or BATAS_UPLOAD_BYTES
         r = requests.get(
             url,
             stream=True,
@@ -317,7 +320,24 @@ class SaveInta:
             },
         )
         r.raise_for_status()
-        return r.content
+
+        panjang = r.headers.get("content-length")
+        if panjang and panjang.isdigit() and int(panjang) > batas:
+            r.close()
+            raise MediaTerlaluBesar(url, int(panjang))
+
+        potongan = []
+        total = 0
+        with r:
+            for chunk in r.iter_content(1 << 16):
+                if not chunk:
+                    continue
+                potongan.append(chunk)
+                total += len(chunk)
+                if total > batas:
+                    raise MediaTerlaluBesar(url, total)
+
+        return b"".join(potongan)
 
 
 def main():

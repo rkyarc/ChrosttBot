@@ -2,6 +2,7 @@ import os
 import shutil
 
 from bot import tg_bot
+from bot.handlers.gerbang import lolos
 from bot.keyboards import (
     markup_kembali_menu_utama,
     markup_stiker_hasil,
@@ -232,6 +233,9 @@ def proses_media_stiker(message):
     sesi = STIKER_SESSIONS.get(chat_id) or {}
     mode = sesi.get("mode", "buat")
 
+    if not lolos(message, "stiker"):
+        return
+
     path = _unduh_media(message)
     if not path:
         return
@@ -329,6 +333,9 @@ def _ubah_stiker(call, target: str):
             "Media tidak ditemukan. Kirim ulang stikernya.",
             show_alert=True,
         )
+        return
+
+    if not lolos(call, "stiker"):
         return
 
     tg_bot.answer_callback_query(call.id, "⏳ Memproses...")

@@ -19,7 +19,7 @@ TEKS_SAMBUTAN = (
     "📷 <b>Instagram</b> — foto, carousel, reels\n"
     "🎵 <b>TikTok</b> — video, foto, audio\n"
     "📘 <b>Facebook</b> — video HD/SD\n"
-    "▶️ <b>YouTube</b> — video maks 50MB\n"
+    "▶️ <b>YouTube</b> — video/audio, link kalau >50MB\n"
     "🎨 <b>Stiker</b> — foto/video ↔ stiker\n\n"
     f"<code>{GARIS}</code>\n"
     "<i>Pilih tombol di bawah untuk mulai</i>"
@@ -35,7 +35,7 @@ def _teks_info() -> str:
         "• Python + pyTelegramBotAPI\n"
         "• yfinance untuk data saham\n"
         "• rembg untuk hapus background\n"
-        "• saveinta, tikwm, yt-dlp untuk downloader\n"
+        "• saveinta, tikwm, fdown, yt-dlp untuk downloader\n"
         "• ffmpeg untuk konversi stiker\n"
         f"• {model_aktif()} untuk Chrostt AI\n\n"
         "<b>Status AI</b>\n"
@@ -184,7 +184,8 @@ def menu_tiktok(call):
             "Kirim link TikTok (tiktok.com, vt.tiktok.com, vm.tiktok.com).\n\n"
             "• Video tanpa watermark / dengan watermark\n"
             "• Foto slideshow dikirim sebagai album\n"
-            "• Audio bisa dikirim terpisah",
+            "• Audio bisa dikirim terpisah\n"
+            "• File di atas 50MB dikirim sebagai tautan unduhan",
             "Pilih format lewat tombol setelah link diproses.",
         ),
         call.message.chat.id,
@@ -205,8 +206,8 @@ def menu_facebook(call):
             "📘",
             "Kirim link video Facebook (facebook.com atau fb.watch).\n\n"
             "• Pilih kualitas HD atau SD\n"
-            "• Video dikirim langsung jika di bawah 50MB\n"
-            "• Kalau gagal, bot memberi link unduh manual",
+            "• Video &amp; audio dikirim langsung jika di bawah 50MB\n"
+            "• File lebih besar: bot mengirim tautan unduhan",
             "Hanya video publik yang bisa diproses.",
         ),
         call.message.chat.id,

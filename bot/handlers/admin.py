@@ -1,7 +1,9 @@
+import logging
 import re
+import threading
 import time
 
-from bot import tg_bot
+from bot import tg_bot, telegram_io as tg_io
 from bot.admin import (
     admin_ids,
     apakah_admin,
@@ -26,9 +28,14 @@ from bot.decorators import aman_handler
 
 WAKTU_MULAI = time.time()
 
+log = logging.getLogger("chrosttbot.admin_panel")
+
 # user_id admin -> draft broadcast yang menunggu konfirmasi
 _draft_broadcast: dict[int, dict] = {}
 DRAFT_TTL = 600  # 10 menit
+
+# chat admin yang broadcast-nya masih berjalan (cegah tumpang tindih)
+_broadcast_aktif: set[int] = set()
 
 
 def _draft_valid(user_id: int) -> dict | None:
@@ -578,24 +585,97 @@ def kirim_broadcast(call):
         )
         return
 
-    sukses, gagal = 0, 0
-    for u in penerima:
-        try:
-            tg_bot.send_message(u["id"], draft["teks"], parse_mode="HTML")
-            sukses += 1
-        except Exception:
-            gagal += 1
-        time.sleep(0.05)  # hindari rate limit Telegram (~30 pesan/detik)
+    chat_admin = call.message.chat.id
+    teks = draft["teks"]
 
-    tg_bot.send_message(
-        call.message.chat.id,
+    # Cegah dua broadcast berjalan bersamaan: keduanya akan memakai kuota
+    # Telegram yang sama dan membuat laporan saling menimpa.
+    if chat_admin in _broadcast_aktif:
+        tg_bot.send_message(
+            chat_admin,
+            "⏳ Broadcast sebelumnya masih berjalan. Tunggu sampai selesai.",
+            reply_markup=markup_admin(),
+        )
+        return
+
+    _broadcast_aktif.add(chat_admin)
+
+    # Broadcast ke ratusan pengguna bisa berjalan menit-menit. Dijalankan di
+    # thread terpisah supaya worker telebot tidak tertahan dan admin tetap
+    # dapat balasan lain selama proses berjalan.
+    threading.Thread(
+        target=_jalankan_broadcast,
+        args=(chat_admin, teks, penerima),
+        daemon=True,
+    ).start()
+
+
+def _jalankan_broadcast(chat_admin: int, teks: str, penerima: list[dict]) -> None:
+    try:
+        _kirim_ke_semua(chat_admin, teks, penerima)
+    except Exception:
+        log.exception("Broadcast ke %s gagal", chat_admin)
+        tg_io.kirim(
+            chat_admin,
+            "❌ Broadcast gagal di tengah jalan. Cek log server.",
+            parse_mode="HTML",
+            reply_markup=markup_admin(),
+        )
+    finally:
+        _broadcast_aktif.discard(chat_admin)
+
+
+def _kirim_ke_semua(chat_admin: int, teks: str, penerima: list[dict]) -> None:
+    total = len(penerima)
+    sukses, gagal = 0, 0
+
+    status = tg_io.kirim(
+        chat_admin,
+        f"📤 <b>Broadcast berjalan</b>\n\n"
+        f"<i>0/{total} terkirim...</i>",
+        parse_mode="HTML",
+    )
+
+    langkah_lapor = max(1, total // 5)  # lapor 5 kali, tidak tiap penerima
+
+    for indeks, u in enumerate(penerima, 1):
+        # kirim() mengembalikan None kalau gagal, tidak melempar exception
+        if tg_io.kirim(u["id"], teks, parse_mode="HTML") is not None:
+            sukses += 1
+        else:
+            gagal += 1
+
+        if indeks % langkah_lapor == 0 and status is not None:
+            tg_io.edit(
+                chat_admin,
+                status.message_id,
+                f"📤 <b>Broadcast berjalan</b>\n\n"
+                f"<i>{indeks}/{total} diproses...</i>",
+                parse_mode="HTML",
+            )
+
+        # Hindari batas ~30 pesan/detik Telegram. telegram_io juga menangani
+        # retry_after kalau tetap kena flood.
+        time.sleep(0.05)
+
+    laporan = (
         "✅ <b>BROADCAST SELESAI</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"• Total: <b>{total}</b>\n"
         f"• Terkirim: <b>{sukses}</b>\n"
-        f"• Gagal: <b>{gagal}</b>",
-        parse_mode="HTML",
-        reply_markup=markup_admin(),
+        f"• Gagal: <b>{gagal}</b>"
     )
+
+    if status is not None:
+        tg_io.edit(
+            chat_admin,
+            status.message_id,
+            laporan,
+            parse_mode="HTML",
+            reply_markup=markup_admin(),
+        )
+    else:
+        tg_io.kirim(chat_admin, laporan, parse_mode="HTML", reply_markup=markup_admin())
 
 
 @tg_bot.callback_query_handler(func=lambda call: call.data == "admin_batal")

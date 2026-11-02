@@ -13,18 +13,77 @@ from bot import tg_bot
 
 log = logging.getLogger("chrosttbot.telegram")
 
+# Berapa kali percobaan ulang saat kena flood limit Telegram
+MAKS_ULANG = 2
+
 
 def _pesan_error(e: Exception) -> str:
     return str(e).lower()
 
 
+def _retry_after(e: Exception) -> int | None:
+    """Ambil saran waktu tunggu dari error flood limit Telegram.
+
+    pyTelegramBotAPI mengisi ``retry_after`` di objek exception, tetapi
+    sebagian jalur hanya menyertakan angka di deskripsi teks.
+    """
+    nilai = getattr(e, "retry_after", None)
+    if isinstance(nilai, int) and nilai > 0:
+        return nilai
+
+    pesan = _pesan_error(e)
+    penanda = "retry after "
+    if penanda in pesan:
+        sisa = pesan.split(penanda, 1)[1]
+        angka = ""
+        for karakter in sisa:
+            if karakter.isdigit():
+                angka += karakter
+            else:
+                break
+        if angka:
+            return max(1, int(angka))
+
+    return None
+
+
+def _kena_flood(e: Exception) -> bool:
+    pesan = _pesan_error(e)
+    return "flood" in pesan or "too many requests" in pesan or "retry after" in pesan
+
+
+def _ulang(fungsi, *args, **kwargs):
+    """Jalankan fungsi, tunggu lalu ulangi kalau kena flood limit.
+
+    Telegram meminta tunggu sampai ``retry_after`` detik. Menunggu lebih murah
+    daripada membuang pesan: pengguna tidak perlu mengirim ulang perintah.
+    """
+    percobaan = 0
+    while True:
+        try:
+            return fungsi(*args, **kwargs)
+        except Exception as e:
+            if not _kena_flood(e) or percobaan >= MAKS_ULANG:
+                raise
+
+            tunggu = _retry_after(e) or 3
+            percobaan += 1
+            log.warning(
+                "Flood limit: tunggu %s detik lalu ulangi (%s/%s)",
+                tunggu,
+                percobaan,
+                MAKS_ULANG,
+            )
+            time.sleep(min(tunggu, 30))
+
+
 def kirim(chat_id: int, teks: str, **kwargs):
     """Kirim pesan; kembalikan objek Message atau None kalau gagal."""
     try:
-        return tg_bot.send_message(chat_id, teks, **kwargs)
+        return _ulang(tg_bot.send_message, chat_id, teks, **kwargs)
     except Exception as e:
-        if "flood" in _pesan_error(e) or "too many requests" in _pesan_error(e):
-            log.warning("Flood limit saat kirim ke %s, coba lagi nanti", chat_id)
+        if _kena_flood(e):
+            log.warning("Flood limit saat kirim ke %s, pesan dilepas", chat_id)
         else:
             log.warning("Gagal kirim pesan ke %s: %s", chat_id, e)
         return None
@@ -33,7 +92,7 @@ def kirim(chat_id: int, teks: str, **kwargs):
 def edit(chat_id: int, message_id: int, teks: str, **kwargs) -> bool:
     """Edit pesan. Kalau gagal karena isi sama, dianggap berhasil."""
     try:
-        tg_bot.edit_message_text(teks, chat_id, message_id, **kwargs)
+        _ulang(tg_bot.edit_message_text, teks, chat_id, message_id, **kwargs)
         return True
     except Exception as e:
         pesan = _pesan_error(e)

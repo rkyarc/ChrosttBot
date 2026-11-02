@@ -1,15 +1,13 @@
 """Utilitas admin: cek akses, pencatatan pengguna, dan format pesan admin."""
 
 import logging
-import time
 
 import config
 from bot import tg_bot
+from bot.riwayat import RIWAYAT
 
 log = logging.getLogger("chrosttbot.admin")
 
-# user_id -> info dasar, dipakai untuk panel pengguna & broadcast
-_pengguna: dict[int, dict] = {}
 _listener_aktif = False
 
 
@@ -59,20 +57,29 @@ def catat_pengguna(message) -> None:
     if chat is not None and getattr(chat, "type", "private") != "private":
         return
 
-    _pengguna[from_user.id] = {
-        "id": from_user.id,
-        "nama": getattr(from_user, "full_name", "") or getattr(from_user, "first_name", "") or "",
-        "username": getattr(from_user, "username", "") or "",
-        "terakhir": time.time(),
-    }
+    nama = getattr(from_user, "full_name", "") or getattr(from_user, "first_name", "")
+    username = getattr(from_user, "username", "") or ""
+
+    try:
+        RIWAYAT.simpan_pengguna(from_user.id, nama, username)
+    except Exception:
+        log.debug("Gagal mencatat pengguna di database", exc_info=True)
 
 
 def daftar_pengguna() -> list[dict]:
-    return sorted(_pengguna.values(), key=lambda u: u["terakhir"], reverse=True)
+    try:
+        return RIWAYAT.daftar_pengguna()
+    except Exception:
+        log.warning("Gagal membaca daftar pengguna", exc_info=True)
+        return []
 
 
 def jumlah_pengguna() -> int:
-    return len(_pengguna)
+    try:
+        return RIWAYAT.jumlah_pengguna()
+    except Exception:
+        log.warning("Gagal menghitung pengguna", exc_info=True)
+        return 0
 
 
 def pasang_listener() -> None:

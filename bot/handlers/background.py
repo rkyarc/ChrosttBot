@@ -1,12 +1,16 @@
 from io import BytesIO
 
 from bot import tg_bot
+from bot.handlers.gerbang import lolos
 from bot.services.removebg import RemoveBgError, hapus_background
 
 
 @tg_bot.message_handler(content_types=["photo"])
 def proses_hapus_bg(message):
     chat_id = message.chat.id
+
+    if not lolos(message, "umum"):
+        return
 
     pesan_loading = tg_bot.send_message(
         chat_id,
