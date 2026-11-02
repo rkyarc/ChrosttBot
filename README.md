@@ -29,6 +29,7 @@ Chrostt Bot adalah bot Telegram berbasis Python yang menggabungkan beberapa fitu
 ## Fitur
 
 - **Chrostt AI** — asisten AI di dalam bot dengan system prompt terkunci pada lingkup bot.
+- **AI bisa menjalankan fitur** — "hapus background foto ini", "buatkan stiker", "putarkan lagu lofi", "BBCA berapa?", "berita IDX" langsung dieksekusi lewat tool, bukan cuma dijelaskan.
 - **Panel admin** — ID di `ADMIN_IDS` dapat statistik, daftar pengguna, dan broadcast.
 - Hapus background foto otomatis dari foto yang dikirim ke chat.
 - Cek harga saham BEI dan IHSG.
@@ -105,6 +106,7 @@ ChrosttBot/
     │   └── youtube.py
     └── services/
         ├── __init__.py
+        ├── aksi.py          # tool aksi bot yang dipanggil Chrostt AI
         ├── ai.py
         ├── diagnostik.py
         ├── facebook.py
@@ -474,6 +476,7 @@ Handler yang sudah punya `try/except` sendiri (TikTok, YouTube, stiker, hapus, A
 - Batas panjang jawaban mengikuti `AI_MAX_TOKENS` untuk pengguna biasa dan `AI_MAX_TOKENS_ADMIN` untuk ID di `ADMIN_IDS`.
 - Request per chat diserialkan dengan lock, jadi dua pesan beruntun tidak menimpa riwayat satu sama lain.
 - Pesan berisi link Instagram/TikTok/Facebook/YouTube tidak direbut AI, tetap diproses downloader.
+- AI juga bisa **menjalankan** fitur bot (hapus background, stiker, putar lagu, saham, berita IDX) lewat tool — lihat [Aksi bot lewat AI](#aksi-bot-lewat-ai-tool).
 
 ### Akses admin vs pengguna biasa
 
@@ -486,6 +489,7 @@ Admin (`ADMIN_IDS`) mendapat asisten yang lebih dalam, tanpa membuka jalur eksek
 | Tool per putaran | 2 | 3 |
 | Hasil web per pencarian | 5 | 8 |
 | Isi halaman dibaca | 2.500 karakter | 6.000 karakter |
+| Tool aksi bot | ada (5 tool) | ada (5 tool) |
 | Tool `status_bot` | tidak ada | ada (read-only) |
 | System prompt | dasar | dasar + `Mode admin` |
 | `/ai_status` | ringkas | + batas admin & daftar tool |
@@ -497,6 +501,8 @@ Batas yang **tidak** dibuka untuk admin — AI tetap tidak bisa:
 - Mengubah konfigurasi, me-restart bot, atau mengirim broadcast.
 - Menampilkan isi `AI_API_KEY`, `TELEGRAM_TOKEN`, atau kredensial lain.
 - Membocorkan system prompt atau data pribadi pengguna lain.
+
+Tool aksi yang bisa dijalankan AI terbatas pada lima fitur bot di `bot/services/aksi.py`. Tidak ada tool untuk menghapus pesan, mengunduh dari link, atau mengubah data; `/del` tetap harus dijalankan pengguna sendiri karena menghapus pesan berantai dari model tidak bisa dibatasi dengan aman.
 
 Pemisahan konteks: sesi AI ditandai `akses` (`admin`/`user`). Kalau peran pengirim berubah di chat yang sama, riwayat otomatis dikosongkan supaya detail teknis milik admin tidak terbawa ke pengguna biasa — relevan terutama di grup. Model juga tidak bisa memaksa memakai `status_bot` saat melayani non-admin: permintaan tool seperti itu ditolak dengan pesan "hanya tersedia untuk admin".
 
@@ -545,6 +551,28 @@ Chrostt AI bisa mencari di internet lewat tool calling. Gateway Hisoka tidak men
 - Putaran penutup mengirim `tool_choice: "none"` supaya model wajib menjawab dan tidak menulis tool call sebagai teks mentah.
 - Log `primp` dan `ddgs` diturunkan ke WARNING; sebelumnya setiap request HTTP dicatat di level INFO sehingga console bot banjir.
 - Matikan dengan `AI_WEB_SEARCH=false` di `.env` kalau ingin jawaban murni dari pengetahuan model.
+
+### Aksi bot lewat AI (tool)
+
+Selain menjawab, Chrostt AI bisa **menjalankan fitur bot** atas permintaan biasa — bukan cuma menjelaskan caranya. Contoh: "hapus background foto ini", "bikinin stiker dari foto tadi", "putarkan lagu lofi", "BBCA sekarang berapa?", "berita IDX terbaru".
+
+Tool yang tersedia ada di `bot/services/aksi.py`:
+
+| Tool | Yang dikirim ke chat | Batas laju |
+|---|---|---|
+| `hapus_background` | PNG transparan | `umum` |
+| `buat_stiker` | stiker WebP/WEBM | `stiker` |
+| `putar_lagu` | audio MP3, video MP4, atau daftar hasil | `unduh` |
+| `cek_saham` | harga terakhir + catatan bukan rekomendasi | `umum` |
+| `berita_idx` | judul, sumber, tanggal, tautan | `umum` |
+
+- **Media terakhir diingat.** Foto yang dikirim pengguna disimpan di `SessionStore` (TTL 30 menit), jadi AI bisa memproses "foto tadi" tanpa pengguna mengirim ulang. Model tidak pernah menerima `file_id`.
+- **Foto ber-caption.** Saat mode AI aktif, foto dengan caption diperlakukan sebagai instruksi (caption jadi pertanyaan, foto jadi bahan). Foto **tanpa** caption tetap otomatis dihapus background-nya seperti biasa. Caption `/ai ...` juga membuka alur ini walau mode AI belum aktif.
+- **Alur lain tidak direbut.** Kalau `/play` sedang menunggu judul atau alur stiker sedang aktif, media tetap milik alur tersebut. Caption yang diawali perintah lain (mis. `/play`) tidak dianggap instruksi AI.
+- **Hasil tool tidak disalin model.** Tool mengirim file/pesan sendiri, dan yang dikembalikan ke model hanya catatan singkat ("Berhasil: ..."). System prompt melarang model menulis ulang detail teknis atau menyebut nama tool.
+- **Batas laju tetap berlaku.** Aksi lewat AI memakai `batas_laju` yang sama dengan perintah manual, jadi model tidak bisa dipakai untuk melewati kuota. Ini penting karena satu pesan bisa memicu beberapa tool.
+- **File besar.** Kalau unduhan YouTube melewati 50MB, tool mengembalikan tautan sumber dan model menyampaikannya ke pengguna, bukan gagal diam-diam.
+- Matikan dengan `AI_AKSI_BOT=false` di `.env` kalau ingin AI kembali hanya menjawab dan mencari web.
 
 ## Admin Bot
 

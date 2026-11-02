@@ -78,6 +78,10 @@ AI_WEB_SEARCH = (os.getenv("AI_WEB_SEARCH") or "true").strip().lower() not in (
     "off",
 )
 
+# Aksi bot lewat AI: hapus background, stiker, putar lagu, saham, berita IDX.
+# Aksi ini mengirim hasil ke chat, jadi bisa dimatikan tanpa mematikan AI.
+AI_AKSI_BOT = _env_bool("AI_AKSI_BOT", True)
+
 # ========================
 # PENYIMPANAN RIWAYAT AI
 # ========================
