@@ -76,11 +76,16 @@ _TIMEOUT_DDGS = 12
 # Batas waktu saat mengambil tanggal dari halaman hasil
 _TIMEOUT_TANGGAL = 6
 
+# Kata yang terlalu umum untuk dihitung sebagai kata kunci pencarian.
 _STOPWORD = frozenset(
-    "dan atau yang untuk dengan dari pada ini itu apa adalah cara bagaimana "
-    "siapa kapan dimana mengapa berapa hari tadi malam ini besok kemarin "
-    "the and for with from what how who when where why which is are of to in "
-    "on at today now latest update".split()
+    [
+        "dan", "atau", "yang", "untuk", "dengan", "dari", "pada", "ini", "itu",
+        "apa", "adalah", "cara", "bagaimana", "siapa", "kapan", "dimana",
+        "mengapa", "berapa", "hari", "tadi", "malam", "besok", "kemarin",
+        "the", "and", "for", "with", "from", "what", "how", "who", "when",
+        "where", "why", "which", "is", "are", "of", "to", "in", "on", "at",
+        "today", "now", "latest", "update",
+    ]
 )
 
 # Kata yang menandakan pengguna mencari info terkini, dipakai untuk memilih

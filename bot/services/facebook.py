@@ -8,7 +8,6 @@ from bot.services.media import MediaTerlaluBesar
 
 class FacebookScraperError(Exception):
     """Custom exception untuk error pada scraper Facebook."""
-    pass
 
 
 def _session():

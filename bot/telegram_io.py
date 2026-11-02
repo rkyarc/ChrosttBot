@@ -6,6 +6,7 @@ Modul ini menangani kasus tersebut supaya log tidak penuh traceback dan
 pengguna tidak melihat pesan gagal yang menyesatkan.
 """
 
+import contextlib
 import logging
 import time
 
@@ -138,10 +139,8 @@ def jawab_callback(call, teks: str = "", alert: bool = False) -> None:
 
 def ketik(chat_id: int, aksi: str = "typing") -> None:
     """Kirim indikator aktivitas; abaikan kalau gagal."""
-    try:
+    with contextlib.suppress(Exception):
         tg_bot.send_chat_action(chat_id, aksi)
-    except Exception:
-        pass
 
 
 def tunggu(chat_id: int, detik: int = 60) -> None:

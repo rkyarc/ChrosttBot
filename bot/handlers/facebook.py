@@ -1,3 +1,4 @@
+import contextlib
 import re
 from io import BytesIO
 
@@ -155,10 +156,8 @@ def aksi_download_facebook(call):
         tg_bot.delete_message(chat_id, status_msg.message_id)
 
     except MediaTerlaluBesar as e:
-        try:
+        with contextlib.suppress(Exception):
             tg_bot.delete_message(chat_id, status_msg.message_id)
-        except Exception:
-            pass
 
         alternatif = []
         if e.url == hd_url and sd_url:
@@ -176,10 +175,8 @@ def aksi_download_facebook(call):
         )
 
     except Exception as e:
-        try:
+        with contextlib.suppress(Exception):
             tg_bot.delete_message(chat_id, status_msg.message_id)
-        except Exception:
-            pass
 
         # Kalau upload gagal (misal > 50MB / timeout), kasih link download manual
         markup = types.InlineKeyboardMarkup(row_width=1)

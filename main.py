@@ -1,5 +1,8 @@
+import contextlib
 import logging
+import signal
 import sys
+import threading
 import time
 
 import config
@@ -13,10 +16,8 @@ from telebot.types import BotCommand, BotCommandScopeChat
 def _perbaiki_encoding_console():
     """Windows console (cp1252/cp437) tidak bisa cetak emoji -> pakai UTF-8."""
     for stream in (sys.stdout, sys.stderr):
-        try:
+        with contextlib.suppress(AttributeError, ValueError):
             stream.reconfigure(encoding="utf-8", errors="replace")
-        except (AttributeError, ValueError):
-            pass
 
 
 class SembunyikanConflict(logging.Filter):
@@ -73,11 +74,36 @@ def daftarkan_perintah():
             log.warning("Gagal mendaftarkan perintah admin untuk %s: %s", admin_id, e)
 
 
+def _pasang_sinyal_berhenti() -> None:
+    """Tangkap SIGTERM/SIGINT supaya shutdown rapi, termasuk dari Docker.
+
+    Tanpa ini, `docker compose down` mengirim SIGTERM yang mematikan proses
+    tanpa membersihkan prompt ForceReply /play, sehingga kolom balas bisa
+    menggantung di chat pengguna setelah container naik lagi.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        # signal.signal hanya boleh dipanggil di thread utama
+        return
+
+    def _berhenti(signum, _frame):
+        log.info("Sinyal %s diterima, menutup bot...", signal.Signals(signum).name)
+        with contextlib.suppress(Exception):
+            play_mode.tutup_semua()
+        raise SystemExit(0)
+
+    for nama in ("SIGTERM", "SIGINT", "SIGHUP"):
+        sinyal = getattr(signal, nama, None)
+        if sinyal is None:
+            continue
+        with contextlib.suppress(ValueError, OSError):
+            signal.signal(sinyal, _berhenti)
+
+
 def run_bot():
-    try:
+    with contextlib.suppress(Exception):
         tg_bot.remove_webhook()
-    except Exception:
-        pass
+
+    _pasang_sinyal_berhenti()
 
     daftarkan_perintah()
     pasang_listener()
@@ -114,12 +140,10 @@ def run_bot():
                 long_polling_timeout=40,
                 skip_pending=True,
             )
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, SystemExit):
             print("\n[SYSTEM] Bot dihentikan.")
-            try:
+            with contextlib.suppress(Exception):
                 play_mode.tutup_semua()
-            except Exception:
-                pass
             break
         except Exception as e:
             if "409" in str(e) or "Conflict" in str(e):

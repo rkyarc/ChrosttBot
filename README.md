@@ -255,16 +255,26 @@ Cakupan saat ini:
 | `tests/test_telegram_io.py` | parsing `retry_after`, retry flood, menyerah setelah batas |
 | `tests/test_media.py` | batas 50MB, isi pesan tautan unduhan, tombol alternatif |
 | `tests/test_unduhan.py` | keempat downloader mengirim tautan (bukan error) saat file besar, dan batas laju benar-benar menghentikan unduhan |
+| `tests/test_hapus.py` | `/del`: hapus per pesan, fallback bulk, batas 100, message_id kecil, escape argumen, laporan gagal |
+| `tests/test_play_mode.py` | prompt ForceReply selalu dibersihkan, mode di grup selective, pembersihan sisa setelah restart |
+| `tests/test_ai_service.py` | pemetaan error gateway, JSON bercampur sisa SSE, normalisasi konten, alur tool calling |
+| `tests/test_youtube_service.py` | pencarian, terjemahan error yt-dlp, video >1 jam jadi tautan, `.part` tidak pernah dikirim |
+| `tests/test_websearch.py` | validasi backend ddgs, parsing tanggal, prioritas kesegaran, fallback Wikipedia |
 | `tests/test_admin.py` | cek admin dari `from_user`, penolakan di grup, pencatatan pengguna |
+| `tests/test_broadcast.py` | broadcast async, hitungan sukses/gagal, penolakan broadcast ganda |
 | `tests/test_dependency.py` | `pyproject.toml` dan `requirements.txt` tetap sinkron |
+
+Total **231 test**. Coverage `bot/`: **45%** keseluruhan, dengan modul inti dan jalur berisiko tinggi di atas 85% (`riwayat` 91%, `hapus` 89%, `youtube` service 87%, `play_mode` 93%, `unduhan` 100%, `sessions` 100%, `gerbang` 93%).
 
 Langkah verifikasi lengkap (sama seperti yang dijalankan CI):
 
 ```bash
-poetry run ruff check bot main.py config.py tests --select F,E9
+poetry run ruff check bot main.py config.py tests
 poetry run python -m compileall -q bot main.py config.py
 poetry run python -m unittest discover -s tests -t .
 ```
+
+Aturan lint ada di `[tool.ruff]` pada `pyproject.toml`: `F`, `E4`, `E7`, `E9`, `B`, `SIM`, `PIE`, `RUF100`, dengan `line-length = 100`. `BLE001` sengaja diabaikan karena handler bot memang menangkap `Exception` luas agar satu fitur gagal tidak menjatuhkan bot.
 
 CI di `.github/workflows/ci.yml` menjalankan keempat langkah itu di Python 3.10 dan 3.12 untuk setiap push ke `dev/**`/`staging` dan setiap PR ke `main`/`staging`.
 
