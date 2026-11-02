@@ -522,13 +522,18 @@ Panel admin punya menu **🗂️ Riwayat AI** untuk melihat dan menghapus arsip:
 
 Chrostt AI bisa mencari di internet lewat tool calling. Gateway Hisoka tidak menyediakan web search server-side, jadi pencarian dijalankan oleh bot sendiri.
 
-- `web_search` — cari di web. Sumber berantai: `ddgs` (backend google → brave → duckduckgo → mojeek), lalu Wikipedia, lalu Google News RSS. Hasil digabung supaya tetap ada walau satu engine kena rate limit.
+- `web_search` — cari di web lewat `ddgs`. Backend dipilih dari yang **benar-benar terpasang** di versi ddgs aktif (daftar engine berubah antar versi: `google` sudah dihapus di ddgs 9.16), lalu diverifikasi terhadap `ddgs.engines.ENGINES`. Pasangan `duckduckgo + yahoo` dipakai untuk teks dan `bing + yahoo` untuk berita karena paling andal sekaligus jauh lebih cepat daripada `auto`.
+- Rantai sumber: berita (ddgs news) → web (ddgs text) → Google News RSS → Wikipedia. Wikipedia selalu jadi jaring terakhir, jadi pertanyaan konseptual tetap terjawab walau seluruh engine teks sedang kena rate limit.
 - `baca_halaman` — ambil isi halaman. Percobaan pertama fetch langsung, lalu fallback ke `r.jina.ai` kalau halaman terlalu berat atau butuh JavaScript.
-- Hasil pencarian difilter skor relevansi terhadap kata kunci, jadi hasil "nyasar" tidak dipakai. Domain spam/judi/klikbait dibuang.
+- **Tanggal hasil**: ddgs news membawa tanggal terbit, sedangkan hasil web umumnya tidak. Untuk pertanyaan yang sensitif waktu, bot membaca `<meta property="article:published_time">` / JSON-LD `datePublished` / `<time datetime>` dari 3 halaman teratas secara paralel, dengan batas 6 detik. Pertanyaan konseptual melewati langkah ini karena tanggal tidak mengubah jawaban.
+- **Prioritas kesegaran**: skor akhir = relevansi kata kunci + bonus umur hasil. Bonus lebih besar untuk query yang meminta info terkini ("hari ini", "tadi malam", "harga", "skor", "cuaca", "jadwal"), sehingga hasil baru menang atas arsip lama.
+- Tanggal relatif hasil konversi pustaka hanya menampilkan **tanggal**, bukan jam, karena jamnya memakai waktu sekarang dan menyesatkan. Jam hanya ditampilkan kalau dibaca langsung dari halaman artikel. Tanggal yang jatuh di masa depan ditandai "tidak wajar".
+- Hasil pencarian difilter skor relevansi terhadap kata kunci, jadi hasil "nyasar" tidak dipakai. Domain spam/judi/klikbait dibuang, URL didedup, dan maksimal 2 hasil per domain.
 - Halaman yang isinya cuma pesan error, 404, captcha, atau boilerplate ditolak lewat penilaian kualitas teks.
 - Semua URL dicek dulu: alamat private/loopback/link-local (`127.0.0.1`, `10.x`, `192.168.x`, `169.254.169.254`) dan skema selain http/https ditolak, supaya model tidak bisa dipakai SSRF.
 - Batas biaya: maksimal 2 putaran tool, 2 tool per putaran, 5 hasil per pencarian, ringkasan 240 karakter. Query yang sudah pernah dicari dilewati agar tidak mengulang. Admin mendapat batas lebih longgar (4 putaran, 3 tool, 8 hasil, isi halaman 6.000 karakter).
 - Putaran penutup mengirim `tool_choice: "none"` supaya model wajib menjawab dan tidak menulis tool call sebagai teks mentah.
+- Log `primp` dan `ddgs` diturunkan ke WARNING; sebelumnya setiap request HTTP dicatat di level INFO sehingga console bot banjir.
 - Matikan dengan `AI_WEB_SEARCH=false` di `.env` kalau ingin jawaban murni dari pengetahuan model.
 
 ## Admin Bot

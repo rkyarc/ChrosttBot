@@ -36,6 +36,11 @@ logging.basicConfig(
 logging.getLogger("telebot").setLevel(logging.ERROR)
 logging.getLogger("telebot").addFilter(SembunyikanConflict())
 
+# primp (HTTP client di balik ddgs) mencatat setiap request di level INFO.
+# Itu membanjiri console bot tanpa nilai operasional, jadi diturunkan.
+logging.getLogger("primp").setLevel(logging.WARNING)
+logging.getLogger("ddgs").setLevel(logging.WARNING)
+
 log = logging.getLogger("chrosttbot")
 
 PERINTAH_UMUM = [
